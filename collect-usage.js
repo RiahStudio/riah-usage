@@ -427,6 +427,21 @@ async function pullGrok() {
   let plan = null;
   const user = userRes.ok ? userRes.json : null;
   const bill = billRes.ok ? billRes.json?.config || billRes.json : null;
+  // Unified billing (2026+): credits endpoint may omit creditUsagePercent /
+  // productUsage; monthly used/limit live on the plain /v1/billing config.
+  if (!meters.length && bill) {
+    const limitRaw = bill.monthlyLimit?.val ?? bill.monthlyLimit;
+    const usedRaw = bill.used?.val ?? bill.used;
+    const limit = limitRaw != null ? Number(limitRaw) : NaN;
+    const used = usedRaw != null ? Number(usedRaw) : NaN;
+    if (Number.isFinite(limit) && limit > 0 && Number.isFinite(used)) {
+      meters.push({
+        label: 'Monthly',
+        usedPercent: (used / limit) * 100,
+        resetsAt: bill.billingPeriodEnd || null,
+      });
+    }
+  }
   const monthly = bill?.monthlyLimit?.val ?? bill?.monthlyLimit ?? null;
   if (user?.hasGrokCodeAccess) {
     if (monthly != null && Number(monthly) >= 100000) plan = 'SuperGrok Heavy';
