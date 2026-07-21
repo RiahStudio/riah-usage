@@ -98,4 +98,20 @@ window.RIAH_USAGE_SETUP = [
       },
     ],
   },
+  {
+    id: "Kimi",
+    title: "Kimi",
+    blurb: "Kimi Code CLI login (Kimi for Coding meters)",
+    ready: true,
+    installLabel: "Kimi Code CLI",
+    installUrl: "https://moonshotai.github.io/kimi-code/",
+    steps: [
+      { text: "Install the Kimi Code CLI (docs link above)." },
+      { text: "Sign in from a terminal — a device-code page opens in your browser:" },
+      { cmd: "kimi login" },
+      {
+        text: "Meters need an active Kimi for Coding plan on that account. Signed in? Tap Continue — we read the login the CLI saved.",
+      },
+    ],
+  },
 ];

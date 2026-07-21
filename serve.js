@@ -415,6 +415,7 @@ const server = http.createServer((req, res) => {
         gemini: { cmd: null, note: 'Use Connect → Gemini → Sync Gemini.' },
         copilot: { cmd: 'gh auth login', note: 'Follow the prompts.' },
         cursor: { cmd: null, note: 'Open the Cursor app and sign in.' },
+        kimi: { cmd: 'kimi login', note: 'Finish the browser sign-in.' },
       };
       const r = RECIPES[id];
       if (!r) {

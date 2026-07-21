@@ -460,13 +460,17 @@ const FIXES = {
   Gemini: { verb: 'Re-sign in', id: 'gemini' },
   Copilot: { verb: 'Re-sign in', id: 'copilot' },
   Cursor: { verb: 'Open Cursor', id: 'cursor' },
+  Kimi: { verb: 'Re-sign in', id: 'kimi' },
 };
 
 function plainReason(name, raw) {
   const s = String(raw || '').toLowerCase();
   if (!s) return 'Lost the connection.';
-  if (s.includes('no_claude_code_oauth') || s.includes('no_token') || s.includes('no_gemini_cli_login')) {
+  if (s.includes('no_claude_code_oauth') || s.includes('no_token') || s.includes('no_gemini_cli_login') || s.includes('no_kimi_login')) {
     return 'Sign-in needs renewing.';
+  }
+  if (s.includes('no_subscription')) {
+    return 'Signed in, but this account has no Kimi for Coding plan.';
   }
   if (s.includes('refresh') || s.includes('401') || s.includes('403') || s.includes('expired')) {
     return 'Sign-in expired.';
@@ -565,6 +569,14 @@ function pullCopilotFrom(j) {
     j.plan,
     null
   );
+}
+
+function pullKimiFrom(j) {
+  if (!j?.ok || !j.meters?.length) {
+    lastError.Kimi = (j && (j.error || j.hint)) || 'no_meters';
+    return null;
+  }
+  return provider('Kimi', j.meters, j.href || 'https://www.kimi.com/code', j.plan, null);
 }
 
 function cursorBillingEnd(j) {
@@ -774,6 +786,10 @@ function authHints() {
     ),
     // Copilot: filled from pull-copilot.py when a GitHub/Copilot token is on disk
     Copilot: false,
+    // Kimi: the Kimi Code CLI's device-flow login file
+    Kimi: fs.existsSync(
+      path.join(os.homedir(), '.kimi-code', 'credentials', 'kimi-code.json')
+    ),
   };
 }
 
@@ -786,6 +802,7 @@ async function main() {
   const copilot = pullCopilotFrom(copilotRaw);
   const cursorRaw = pyPull('pull-cursor.py');
   const cursor = cursorProviderFromPull(cursorRaw);
+  const kimi = pullKimiFrom(pyPull('pull-kimi.py'));
 
   // Glance order — never drop a working meter just because one refresh glitched
   const providers = [
@@ -795,6 +812,7 @@ async function main() {
     keepProvider('Codex', codex, prevByName),
     keepProvider('Grok', grok, prevByName),
     keepProvider('Copilot', copilot, prevByName),
+    keepProvider('Kimi', kimi, prevByName),
   ].filter(Boolean);
   const live = new Set(providers.map((p) => p.shortName));
   const hints = authHints();
@@ -804,7 +822,7 @@ async function main() {
     if (copilotRaw && copilotRaw.error !== 'no_token') hints.Copilot = true;
   }
   if (copilot) hints.Copilot = true;
-  const allIds = ['Claude', 'Cursor', 'Codex', 'Grok', 'Gemini', 'Copilot'];
+  const allIds = ['Claude', 'Cursor', 'Codex', 'Grok', 'Gemini', 'Copilot', 'Kimi'];
   const connections = allIds.map((name) => ({
     id: name,
     connected: live.has(name) || !!hints[name],
@@ -823,6 +841,7 @@ async function main() {
     Grok: 'Run `grok login` in a terminal.',
     Gemini: 'In the desk: Connect → Gemini → Sync Gemini.',
     Copilot: 'Sign in to Copilot in your editor, or run `gh auth login`.',
+    Kimi: 'Run `kimi login` in a terminal.',
   };
 
   const missing = allIds
@@ -844,6 +863,8 @@ async function main() {
         action:
           name === 'Gemini'
             ? 'Google retired Gemini Code Assist for personal accounts, so this one may not report at all.'
+            : name === 'Kimi' && String(lastError.Kimi || '').includes('no_subscription')
+            ? 'The login works — meters need an active Kimi for Coding plan (kimi.com/code).'
             : (HOWTO[name] || null) + ' Signing in again usually fixes it.',
       };
     });

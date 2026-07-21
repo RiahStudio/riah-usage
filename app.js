@@ -406,6 +406,8 @@
         body += '</div></div>';
       }
 
+      body += missingSection(data);
+
       actions =
         '<div class="su-actions">' +
         '<button type="button" class="su-primary" id="btn-start-wizard">Continue</button>' +
@@ -1019,25 +1021,27 @@
     if (shouldAutoOpenSetup(data)) showSetup(true);
     else if (!setupOpen) showSetup(false);
 
-    renderMissing(data);
+    clearBoardMissing();
   }
 
-  // Say why a meter is not showing. The reason was always computed and then
-  // wiped from the page on every render, so a provider that needed one command
-  // looked exactly like a broken app. Silence is what made people say "broken".
-  function renderMissing(data) {
+  // Captain's ruling (2026-07-21): nothing undone ever renders on the board.
+  // The board is live meters only. The "why isn't X showing" story still
+  // exists — it lives on the Connect page (missingSection below), where the
+  // fix is one tap away. Silence once made people say "broken"; the answer
+  // is telling them on Connect, not parking problems on the front page.
+  function clearBoardMissing() {
     var miss = document.getElementById('missing');
-    if (!miss) return;
-    // Respect the "Shown on the board" checkboxes here too: unchecking a
-    // provider means "I don't want to see it on the main page" — and that
-    // includes this list, not just the meter cards. (Captain, 2026-07-21.)
+    if (miss && miss.innerHTML !== '') miss.innerHTML = '';
+  }
+
+  // Connect-page section: say why a meter is not showing.
+  // Respects the "Shown on the board" checkboxes: unchecking a provider means
+  // "I don't want to see it" — and that includes this list. (Captain, 2026-07-21.)
+  function missingSection(data) {
     var items = ((data && data.missing) || []).filter(function (m) {
       return !isHidden(m.name);
     });
-    if (!items.length) {
-      miss.innerHTML = '';
-      return;
-    }
+    if (!items.length) return '';
     var rows = items
       .map(function (m) {
         var stale = m.state === 'stale';
@@ -1050,17 +1054,12 @@
         );
       })
       .join('');
-    miss.innerHTML =
-      '<div class="ru-miss-head">Not showing yet</div>' +
+    return (
+      '<div class="su-missing">' +
+      '<p class="su-section">Not showing yet</p>' +
       '<ul class="ru-miss-list">' + rows + '</ul>' +
-      '<button type="button" class="ru-miss-btn" id="btn-miss-connect">Connect an AI</button>';
-    var b = document.getElementById('btn-miss-connect');
-    if (b) {
-      b.addEventListener('click', function () {
-        showSetup(true);
-        renderSetup(latestData || { providers: [], connections: [] });
-      });
-    }
+      '</div>'
+    );
   }
 
   // Refresh all — sits on the LIVE line so an "old" badge always has its cure

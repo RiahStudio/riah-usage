@@ -5,14 +5,15 @@
   <img src="docs/screenshots/tray-hover.png" width="49%" alt="Riah Usage — the tray launcher: a tiny live meter by the Windows clock that opens this popup, mirroring the board" />
 </p>
 
-**Free.** A local, one-glance dashboard for your AI subscription meters — Claude, Cursor, Codex, Grok, Gemini, and Copilot — in a clean Ink/Mono UI.
+**Free.** A local, one-glance dashboard for your AI subscription meters — Claude, Cursor, Codex, Grok, Gemini, Copilot, and Kimi — in a clean Ink/Mono UI.
 
 Drag cards to put the AIs you care about first. Order sticks in your browser. No accounts, no cloud sync, no telemetry. Your logins stay on your machine.
 
 ## Requirements
 
 - **Node.js** 18+ (one-time install from nodejs.org)
-- **Python** 3 (for Claude / Cursor / Gemini pulls)
+- **Python** 3 (for the Claude / Cursor / Gemini / Copilot / Kimi pulls)
+  - Optional: `pip install browser-cookie3 pycryptodomex` — only the Gemini browser-cookie fallback uses these. The one-click **Sync Gemini** works without them.
 - The AI apps/CLIs you already use, signed in:
   - Claude → Claude Code (`claude` then `/login`)
   - Cursor → Cursor desktop signed in
@@ -54,7 +55,7 @@ starting. macOS / Linux: use the web page.
 
 On first open you’ll see **Connect your AIs**:
 
-1. **Check** every AI you use (Claude, Cursor, ChatGPT/Codex, Grok, Gemini, GitHub Copilot).
+1. **Check** every AI you use (Claude, Cursor, ChatGPT/Codex, Grok, Gemini, GitHub Copilot, Kimi).
 2. **Continue** — we walk through them one by one.
 3. For Gemini, **Sync Gemini** opens a sign-in window and finishes itself (no Check again).
 4. For the others, sign in with their app/CLI, then tap **I'm signed in — Continue**.
@@ -75,10 +76,17 @@ Totally optional. Edit `config.js` with your Buy Me a Coffee URL when you have o
 | Codex | Weekly (+ 5-hour when ChatGPT returns it) |
 | Grok | Weekly · product splits |
 | Copilot | Credits · Chat · Completions (plan-dependent) |
+| Kimi | Kimi for Coding windows (weekly / 5-hour, plan-dependent) |
 
 Plan name + list price show on each card (e.g. Max 20× · $200/mo) so you don’t have to memorize tiers. This dashboard itself is free.
 
 You choose what shows: in **Connect**, use the **Shown on the board** checkboxes. Unchecked meters stay connected — they just leave the main list.
+
+## Missing an AI?
+
+We'd love to cover them all — we just haven't built the rest yet. The desk only reads sign-ins that already live on your computer, so the AIs that live in the browser (Perplexity, Midjourney, Suno, ElevenLabs, Runway…) each need their usage page taught the same one-click Sync trick Gemini uses. Buildable — just not built.
+
+[docs/providers.md](docs/providers.md) maps where every popular AI stands today. Want one sooner? Feel free to build it and send a PR. Only house rule: no API keys, no passwords, meters only.
 
 ## Privacy
 

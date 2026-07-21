@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sync Gemini — Riah Usage</title>
+  <meta name="theme-color" content="#0F0F11" />
+  <!-- Bundled fonts (assets/fonts/, SIL OFL) — no outside calls. -->
+  <link rel="stylesheet" href="assets/fonts/fonts.css" />
+  <style>
+    /* Ink/Mono — same system as the desk (index.html). */
+    :root {
+      --bg: #0F0F11;
+      --bg-raised: #141417;
+      --ink: #EDEDEF;
+      --body: #9A9AA2;
+      --dim: #77777F;
+      --rule: rgba(255, 255, 255, 0.12);
+      --rule-strong: rgba(255, 255, 255, 0.16);
+      --riah-brand: #FF5CA8;
+      --font-brand: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
+      --font-sans: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      --font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { color-scheme: dark; }
+    body {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: var(--font-sans);
+      background-color: var(--bg);
+      background-image:
+        repeating-linear-gradient(90deg, transparent 0 89px, rgba(128, 128, 128, 0.05) 89px 90px),
+        repeating-linear-gradient(0deg, transparent 0 89px, rgba(128, 128, 128, 0.05) 89px 90px);
+      color: var(--body);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      padding: 24px 16px;
+    }
+    ::selection { background: var(--ink); color: var(--bg); }
+
+    .cap { position: fixed; font-family: var(--font-mono); font-size: 9px;
+      letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim);
+      opacity: 0.7; pointer-events: none; }
+    .cap-br { bottom: 24px; right: 28px; }
+
+    main {
+      width: min(460px, 94vw);
+      background: var(--bg-raised);
+      border: 1px solid var(--rule-strong);
+      border-radius: 14px;
+      padding: 24px 24px 26px;
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4);
+    }
+    .brand {
+      display: inline-flex; align-items: baseline; gap: 4px;
+      line-height: 1; margin-bottom: 14px;
+    }
+    .brand .riah {
+      font-family: var(--font-brand); font-style: italic; font-size: 19px;
+      letter-spacing: -0.02em; color: var(--riah-brand);
+    }
+    .brand .product {
+      font-family: var(--font-brand); font-size: 17px;
+      letter-spacing: -0.02em; color: var(--ink);
+    }
+    .kicker {
+      font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--dim);
+      padding-bottom: 10px; margin-bottom: 14px;
+      border-bottom: 2px solid var(--ink);
+    }
+    h1 {
+      font-family: var(--font-sans); font-size: 20px; font-weight: 600;
+      letter-spacing: -0.02em; color: var(--ink); margin-bottom: 8px;
+    }
+    .lede { font-size: 13px; margin-bottom: 18px; }
+
+    ol { list-style: none; counter-reset: step; margin-bottom: 20px; }
+    ol li {
+      counter-increment: step;
+      display: flex; gap: 12px; align-items: baseline;
+      padding: 8px 0; border-top: 1px solid var(--rule);
+      font-size: 13px; color: var(--body);
+    }
+    ol li::before {
+      content: "0" counter(step);
+      font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+      letter-spacing: 0.08em; color: var(--dim); flex: 0 0 auto;
+    }
+    ol li strong { color: var(--ink); font-weight: 500; }
+
+    .bm {
+      display: block; width: 100%; text-align: center;
+      background: var(--ink); color: var(--bg);
+      border: 1px solid var(--ink); border-radius: 999px;
+      padding: 12px 16px; text-decoration: none;
+      font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      transition: background 0.15s, color 0.15s;
+    }
+    .bm:hover { background: transparent; color: var(--ink); }
+    .bm[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
+    .bm-hint {
+      font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em;
+      color: var(--dim); text-align: center; margin-top: 8px;
+    }
+
+    .hint {
+      font-size: 12px; color: var(--dim); margin-top: 16px;
+      padding-top: 12px; border-top: 1px solid var(--rule);
+    }
+  </style>
+</head>
+<body>
+  <div class="cap cap-br" aria-hidden="true">RU · SYNC</div>
+  <main>
+    <div class="brand" aria-label="Riah Usage">
+      <span class="riah" aria-hidden="true">Riah</span>
+      <span class="product" aria-hidden="true">Usage</span>
+    </div>
+    <div class="kicker">Sync Gemini</div>
+    <h1>Send your Gemini meters</h1>
+    <p class="lede">Your browser keeps the Google login locked while it’s open — this one click reads the Usage page you’re already on.</p>
+    <ol>
+      <li><span>Keep <strong>gemini.google.com/usage</strong> open (your paid account).</span></li>
+      <li><span>Drag the button below to your <strong>bookmarks bar</strong> — once.</span></li>
+      <li><span>On the Usage tab, <strong>click that bookmark</strong>.</span></li>
+    </ol>
+    <p>
+      <a class="bm" id="bm" href="#" aria-disabled="true">Preparing…</a>
+    </p>
+    <p class="bm-hint">drag me to the bookmarks bar</p>
+    <p class="hint">Keep the desk running. After you click the bookmark on the Usage tab, switch back here — Gemini shows as connected.</p>
+  </main>
+  <script>
+    // Must be a fully-inline javascript: bookmark — Gemini is HTTPS and cannot load localhost scripts.
+    fetch('/gemini-sync.js?t=' + Date.now())
+      .then(function (r) { return r.text(); })
+      .then(function (code) {
+        var a = document.getElementById('bm');
+        a.href = 'javascript:' + encodeURIComponent(code);
+        a.textContent = 'Send to Riah Usage';
+        a.setAttribute('aria-disabled', 'false');
+      })
+      .catch(function () {
+        var a = document.getElementById('bm');
+        a.textContent = 'Could not load capture script';
+      });
+  </script>
+</body>
+</html>
