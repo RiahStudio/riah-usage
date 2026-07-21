@@ -129,6 +129,12 @@ namespace RiahTray {
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int X; public int Y; }
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+    public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
     [DllImport("user32.dll", SetLastError=true)]
     public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
       int X, int Y, int cx, int cy, uint uFlags);
@@ -752,6 +758,34 @@ function Test-HoverBlocked {
   return $false
 }
 
+# Only a real taskbar surface may host the hover peek. When a fullscreen app
+# (YouTube, a game) covers the clock corner, the window under the cursor is
+# that app, not the taskbar -- and the peek must stay quiet. The icon rect
+# poll cannot tell the difference; the window under the cursor can.
+# (Captain, 2026-07-21: it should only pop up when the taskbar is visible.)
+function Test-TaskbarUnderCursor([System.Drawing.Point]$pos) {
+  if (-not $script:HasNative) { return $true }  # corner-fallback rigs keep old behavior
+  try {
+    $pt = New-Object "RiahTray.Native+POINT"
+    $pt.X = $pos.X
+    $pt.Y = $pos.Y
+    $h = [RiahTray.Native]::WindowFromPoint($pt)
+    if ($h -eq [IntPtr]::Zero) { return $false }
+    $root = [RiahTray.Native]::GetAncestor($h, 2)  # 2 = GA_ROOT
+    if ($root -eq [IntPtr]::Zero) { $root = $h }
+    $sb = New-Object System.Text.StringBuilder 256
+    [void][RiahTray.Native]::GetClassName($root, $sb, 256)
+    $cls = $sb.ToString()
+    if ($cls -eq 'Shell_TrayWnd') { return $true }             # main taskbar
+    if ($cls -eq 'Shell_SecondaryTrayWnd') { return $true }    # taskbar on other monitors
+    if ($cls -eq 'NotifyIconOverflowWindow') { return $true }  # Win10 overflow flyout
+    if ($cls -like 'TopLevelWindowForOverflowXamlIsland*') { return $true }  # Win11 overflow
+    return $false
+  } catch {
+    return $true  # a broken guard must never kill hover outright
+  }
+}
+
 function Request-HoverShow {
   if (Test-HoverBlocked) { return }
   if (-not (Test-PopupShown)) { Show-Popup }
@@ -1169,7 +1203,7 @@ $hoverTimer.add_Tick({
     }
   }
 
-  if (($overIcon -or $signalFresh) -and -not (Test-HoverBlocked)) {
+  if (($overIcon -or $signalFresh) -and -not (Test-HoverBlocked) -and (Test-TaskbarUnderCursor $pos)) {
     $script:HiddenAt = $script:LongAgo
     $script:LeaveAt = $null
     Request-HoverShow
