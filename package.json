@@ -1,0 +1,30 @@
+{
+  "name": "riah-usage",
+  "version": "1.0.0",
+  "description": "Free local dashboard for live AI subscription usage meters (Claude, Cursor, Codex, Grok, Gemini).",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "collect": "node collect-usage.js",
+    "start": "node start-background.js",
+    "start:foreground": "node serve.js",
+    "once": "node collect-usage.js",
+    "sync-gemini": "node sync-gemini.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "ai",
+    "usage",
+    "claude",
+    "cursor",
+    "codex",
+    "grok",
+    "gemini",
+    "dashboard"
+  ],
+  "dependencies": {
+    "playwright-core": "^1.61.1"
+  }
+}

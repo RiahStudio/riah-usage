@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Riah Usage</title>
+<meta name="description" content="Free local AI usage dashboard — Claude, Cursor, Codex, Grok, Gemini, Copilot." />
+<meta name="theme-color" content="#0F0F11" />
+<meta name="color-scheme" content="dark light" />
+<!-- Fonts ship WITH the desk (assets/fonts/, SIL OFL) — no Google CDN call,
+     looks right offline. The fonts are half the look; they come along. -->
+<link rel="stylesheet" href="assets/fonts/fonts.css" />
+<style>
+  /* Ink/Mono + inline Riah wordmark (kit type, no pill box) */
+  :root {
+    --bg: #0F0F11;
+    --bg-raised: #141417;
+    --ink: #EDEDEF;
+    --body: #9A9AA2;
+    --dim: #77777F;
+    --rule: rgba(255, 255, 255, 0.12);
+    --rule-strong: rgba(255, 255, 255, 0.16);
+    --rule-hard: #EDEDEF;
+    --keep: #3FCF7F;
+    --revise: #E9BA45;
+    --discard: #F26D5B;
+    --riah-brand: #FF5CA8;
+    --riah-glow: rgba(255, 92, 168, 0.2);
+    --shadow: 0 3px 12px rgba(0, 0, 0, 0.4);
+    --font-brand: 'Instrument Serif', 'DM Serif Display', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+    --font-sans: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --radius-chip: 5px;
+    --radius: 8px;
+    --radius-lg: 14px;
+    --radius-pill: 999px;
+  }
+  [data-theme="light"] {
+    --bg: #FFFFFF;
+    --bg-raised: #FAFAFA;
+    --ink: #111111;
+    --body: #555555;
+    --dim: #888888;
+    --rule: rgba(0, 0, 0, 0.14);
+    --rule-strong: rgba(0, 0, 0, 0.25);
+    --rule-hard: #111111;
+    --keep: #158A46;
+    --revise: #B58004;
+    --discard: #D42B2B;
+    --riah-brand: #C21868;
+    --riah-glow: transparent;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 5px 16px rgba(0, 0, 0, 0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  html { color-scheme: dark; }
+  [data-theme="light"] { color-scheme: light; }
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--bg);
+    background-image:
+      repeating-linear-gradient(90deg, transparent 0 89px, rgba(128, 128, 128, 0.05) 89px 90px),
+      repeating-linear-gradient(0deg, transparent 0 89px, rgba(128, 128, 128, 0.05) 89px 90px);
+    color: var(--body);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    overflow: auto;
+  }
+  ::selection { background: var(--ink); color: var(--bg); }
+  button { font-family: inherit; cursor: pointer; }
+  a { color: var(--ink); text-decoration: none; }
+  a:hover { color: var(--dim); }
+
+  .ru-regmarks { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+  .ru-regmark {
+    position: fixed; width: 26px; height: 26px; pointer-events: none; z-index: 0;
+  }
+  .ru-regmark-tl { top: 20px; left: 20px; border-top: 1px solid var(--rule-strong); border-left: 1px solid var(--rule-strong); }
+  .ru-regmark-tr { top: 20px; right: 20px; border-top: 1px solid var(--rule-strong); border-right: 1px solid var(--rule-strong); }
+  .ru-regmark-bl { bottom: 20px; left: 20px; border-bottom: 1px solid var(--rule-strong); border-left: 1px solid var(--rule-strong); }
+  .ru-regmark-br { bottom: 20px; right: 20px; border-bottom: 1px solid var(--rule-strong); border-right: 1px solid var(--rule-strong); }
+  .ru-regmark-cap {
+    position: fixed; font-family: var(--font-mono); font-size: 9px; font-weight: 400;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim); opacity: 0.7;
+    pointer-events: none; z-index: 0; white-space: nowrap;
+  }
+  .ru-regmark-cap-tl { top: 24px; left: 56px; }
+  .ru-regmark-cap-br { bottom: 24px; right: 56px; }
+
+  .ru-app {
+    display: flex; flex-direction: column;
+    min-height: 100vh; min-height: 100dvh;
+    width: 100%; max-width: 520px; margin: 0 auto;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    background: var(--bg);
+    border-left: 1px solid var(--rule);
+    border-right: 1px solid var(--rule);
+    box-shadow: 0 0 80px rgba(0, 0, 0, 0.25);
+    position: relative; z-index: 1;
+  }
+
+  .ru-header { flex: none; padding: 12px 16px 0; margin: 0 0 2px; }
+  .ru-header-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 8px; border-bottom: 2px solid var(--rule-hard);
+  }
+  .ru-logo {
+    display: inline-flex; align-items: baseline; gap: 4px;
+    color: var(--ink); line-height: 1; white-space: nowrap;
+  }
+  .ru-logo .riah-brand {
+    font-family: var(--font-brand); font-style: italic; font-weight: 400;
+    font-size: 20px; letter-spacing: -0.02em; line-height: 1;
+    color: var(--riah-brand);
+  }
+  .ru-logo .riah-product {
+    font-family: var(--font-brand); font-style: normal; font-weight: 400;
+    font-size: 18px; letter-spacing: -0.02em; line-height: 1;
+    color: var(--ink);
+  }
+  .ru-header-tools { display: flex; align-items: center; gap: 8px; }
+  .theme-toggle, .ru-text-btn {
+    background: none; border: 1px solid var(--rule); color: var(--dim);
+    height: 24px; font-size: 10px; cursor: pointer;
+    display: grid; place-items: center; padding: 0 10px;
+    border-radius: var(--radius-pill); line-height: 1; flex: 0 0 auto;
+    transition: border-color 0.15s, color 0.15s;
+    font-family: var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .theme-toggle { width: 24px; padding: 0; }
+  .theme-toggle:hover, .ru-text-btn:hover { border-color: var(--ink); color: var(--ink); }
+
+  .ru-sub {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--dim);
+    padding: 8px 16px 2px;
+  }
+  .ru-dot {
+    width: 7px; height: 7px; border-radius: 999px; flex: 0 0 auto;
+    background: var(--discard);
+    box-shadow: 0 0 0 2px var(--discard-soft, rgba(242, 109, 91, 0.2));
+  }
+  .ru-dot.on {
+    background: var(--keep);
+    box-shadow: 0 0 0 2px var(--keep-soft, rgba(63, 207, 127, 0.2));
+  }
+  .ru-sub-label { line-height: 1; }
+
+  .ru-list {
+    list-style: none; display: flex; flex-direction: column; gap: 4px;
+    padding: 8px 16px 20px; flex: 1;
+  }
+  .ru-list > li {
+    cursor: grab;
+    touch-action: none;
+  }
+  .ru-list > li.ru-dragging {
+    opacity: 0.45;
+    cursor: grabbing;
+  }
+  .ru-list > li.ru-drop-target .ru-card {
+    border-color: var(--ink);
+  }
+
+  .ru-list > li {
+    position: relative;
+  }
+  .ru-card {
+    display: flex; flex-direction: column; gap: 4px;
+    width: 100%; text-align: left;
+    background: var(--bg-raised);
+    border: 1px solid var(--rule-strong);
+    border-radius: 8px;
+    box-shadow: none;
+    padding: 7px 10px 6px;
+    color: var(--ink);
+    transition: border-color 0.15s, transform 0.1s;
+    font: inherit;
+    cursor: inherit;
+  }
+  button.ru-card { cursor: pointer; }
+  a.ru-card:hover, button.ru-card:hover { border-color: var(--ink); transform: none; color: var(--ink); }
+  .ru-grip {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em;
+    color: var(--dim); line-height: 1; user-select: none; pointer-events: none;
+    margin-right: 2px;
+  }
+
+  .ru-card-top {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding-right: 0;
+  }
+  .ru-ai-wrap {
+    display: flex; align-items: center; gap: 6px; min-width: 0;
+  }
+  .ru-ai {
+    font-family: var(--font-sans); font-size: 13px; font-weight: 500;
+    color: var(--ink); line-height: 1.2;
+  }
+  .ru-plan-block {
+    display: flex; flex-direction: row; align-items: center; gap: 6px;
+    flex: 0 0 auto;
+  }
+  .ru-plan {
+    font-family: var(--font-mono); font-size: 8px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 0.1rem 0.35rem; border-radius: var(--radius-chip);
+    border: 1px solid var(--rule); color: var(--dim); white-space: nowrap;
+  }
+  .ru-price {
+    font-family: var(--font-mono); font-size: 9px; font-weight: 400;
+    letter-spacing: 0.02em; color: var(--dim); white-space: nowrap;
+  }
+
+  .ru-meters { display: flex; flex-wrap: nowrap; gap: 8px 12px; overflow: hidden; }
+  /* Every meter gets the same column width so the numbers line up ACROSS cards.
+     Sized to content, "WEEKLY / API / BUILD" made three different widths while
+     "PLAN / AUTO / API" happened to look even -- so Grok read as wonky next to
+     Cursor. The floor fixes that; longer reset text can still push wider. */
+  .ru-meter { min-width: 92px; flex: 0 0 auto; }
+  /* "3h old" beside the name when a reading could not be refreshed. Amber, not
+     red: the number is probably still roughly right, it just is not current. */
+  /* Lower case on purpose -- "54m ago" is a fact, "54M OLD" is a telling-off. */
+  .ru-stale {
+    margin-left: 8px; padding: 1px 6px; border-radius: 3px;
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .04em;
+    color: var(--revise); border: 1px solid var(--revise); opacity: .85;
+    white-space: nowrap;
+  }
+
+  /* The reason a reading is stuck, right beside the age. An age alone tells you
+     something is wrong but not what, which is how a card sat at "54m old" with
+     an expired sign-in and no way to know. */
+  .ru-stale-why {
+    margin-left: 8px; font-family: var(--font-mono); font-size: 10px;
+    color: var(--dim); font-style: normal;
+  }
+  /* The button that actually fixes it, right next to the complaint. */
+  .ru-fix {
+    margin-left: 8px; background: none; border: 1px solid var(--revise);
+    color: var(--revise); height: 20px; padding: 0 9px; cursor: pointer;
+    border-radius: var(--radius-pill); font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+    transition: background .15s, color .15s; vertical-align: middle;
+  }
+  .ru-fix:hover { background: var(--revise); color: var(--bg); }
+  .ru-fix[disabled] { opacity: .6; cursor: default; text-transform: none; }
+
+  /* "Refresh all" sits at the right of the LIVE line, so an "old" badge always
+     has its fix within reach. */
+  .ru-refresh { margin-left: auto; }
+  .ru-refresh[disabled] { opacity: .5; cursor: wait; }
+
+  /* The "not showing yet" list. This had markup but no styling, so it fell back
+     to browser defaults -- serif body text, a raw bullet, and the three parts
+     running together with no gaps ("CopilotNot connected yet.Sign in to..."). */
+  #missing:empty { display: none; }
+  #missing {
+    margin: 18px 0 0; padding-top: 14px;
+    border-top: 1px solid var(--rule);
+  }
+  .ru-miss-head {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 10px;
+  }
+  .ru-miss-list { list-style: none; margin: 0; padding: 0; }
+  .ru-miss {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+    padding: 5px 0; font-family: var(--font-mono); font-size: 11px;
+    line-height: 1.5;
+  }
+  .ru-miss-name {
+    color: var(--ink); min-width: 68px; letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+  .ru-miss-why { color: var(--dim); }
+  .ru-miss-do { color: var(--revise); opacity: .9; }
+  .ru-miss.is-stale .ru-miss-name { color: var(--revise); }
+  .ru-miss-btn {
+    margin-top: 12px; background: none; border: 1px solid var(--rule);
+    color: var(--dim); height: 24px; padding: 0 10px; cursor: pointer;
+    border-radius: var(--radius-pill); font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    transition: border-color .15s, color .15s;
+  }
+  .ru-miss-btn:hover { border-color: var(--ink); color: var(--ink); }
+  .ru-meter .lab {
+    font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 0;
+    line-height: 1.1;
+  }
+  .ru-meter .num {
+    font-family: var(--font-mono); font-size: 14px; font-weight: 700;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1.15;
+    color: var(--ink);
+  }
+  .ru-meter .num.ok { color: var(--keep); }
+  .ru-meter .num.warn { color: var(--revise); }
+  .ru-meter .num.hot { color: var(--discard); }
+  .ru-meter .reset {
+    font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.02em;
+    color: var(--dim); line-height: 1.2; margin-top: 1px; white-space: nowrap;
+  }
+  .ru-reconnect {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--revise); padding: 2px 0;
+  }
+
+  .ru-bar {
+    height: 2px; background: var(--rule); border-radius: 1px; margin-top: 2px; overflow: hidden;
+  }
+  .ru-bar > i {
+    display: block; height: 100%; background: var(--ink); border-radius: 1px;
+  }
+  .ru-bar.ok > i { background: var(--keep); }
+  .ru-bar.warn > i { background: var(--revise); }
+  .ru-bar.hot > i { background: var(--discard); }
+
+  .ru-empty {
+    padding: 28px 12px; text-align: center; color: var(--body); font-size: 13px;
+  }
+
+  /* ── Connect onboarding ─────────────────────────────────────────────── */
+  #setup { padding: 8px 20px 28px; flex: 1; }
+  #setup[hidden], #board[hidden] { display: none !important; }
+  .su-intro h1 {
+    font-size: 22px; font-weight: 600; color: var(--ink);
+    letter-spacing: -0.02em; margin: 8px 0 8px; line-height: 1.2;
+  }
+  .su-intro p { font-size: 13px; color: var(--body); margin: 0 0 8px; }
+  .su-progress {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--dim) !important; margin-bottom: 14px !important;
+  }
+  .su-section {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--dim); margin: 16px 0 8px;
+  }
+  .su-empty-add {
+    font-size: 12px; color: var(--body); padding: 10px 2px 4px;
+  }
+  .su-list { display: flex; flex-direction: column; gap: 8px; }
+  .su-card {
+    background: var(--bg-raised); border: 1px solid var(--rule-strong);
+    border-radius: 10px; overflow: hidden;
+  }
+  .su-card.ok { border-color: var(--keep-line, rgba(63,207,127,0.35)); }
+  .su-card summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; color: var(--ink); user-select: none;
+  }
+  .su-card summary::-webkit-details-marker { display: none; }
+  .su-status {
+    width: 8px; height: 8px; border-radius: 999px; background: var(--dim); flex: 0 0 auto;
+  }
+  .su-status.on { background: var(--keep); }
+  .su-name { font-weight: 500; font-size: 14px; flex: 1; }
+  .su-state {
+    font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--dim);
+  }
+  .su-card.ok .su-state { color: var(--keep); }
+  .su-body { padding: 0 14px 14px; border-top: 1px solid var(--rule); }
+  .su-blurb { font-size: 12px; color: var(--body); margin: 12px 0 8px; }
+  .su-step { font-size: 13px; color: var(--ink); margin: 8px 0; }
+  .su-shown {
+    margin: 0 0 18px;
+    padding: 12px 14px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--bg);
+  }
+  .su-shown .su-section { margin-top: 0; }
+  .su-shown-hint {
+    font-size: 12px;
+    color: var(--dim);
+    margin: 0 0 10px;
+    line-height: 1.4;
+  }
+  .su-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+  }
+  .su-pick-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+    margin-bottom: 16px;
+  }
+  .su-check.soon span { color: var(--dim); }
+  .su-check.soon em {
+    font-style: normal;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-left: 4px;
+    opacity: 0.75;
+  }
+  .su-wizard-card {
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 14px 16px 16px;
+    margin-bottom: 12px;
+  }
+  .su-wizard-card.ok { border-color: var(--keep-line, rgba(63,207,127,0.35)); }
+  .su-wiz-top {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 4px;
+  }
+  .su-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--ink);
+    cursor: pointer;
+    user-select: none;
+  }
+  .su-check input {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--ink);
+    cursor: pointer;
+  }
+  .su-install {
+    display: inline-block; font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim);
+    margin-bottom: 8px; border-bottom: 1px solid var(--rule);
+  }
+  .su-install:hover { color: var(--ink); }
+  /* THE primary action on the Gemini card — flipped 2026-07-21 when Google
+     closed new Gemini-CLI sign-ins for individual accounts ("migrate to
+     Antigravity"), which made the browser sync the one working path for
+     individuals. Prominence must match priority: the intended action wears
+     the loudest style; the CLI path became the quiet ghost Continue. */
+  .su-sync {
+    display: block;
+    width: 100%;
+    margin: 4px 0 8px;
+    border: 1px solid var(--ink);
+    border-radius: var(--radius-pill);
+    padding: 12px 16px;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: var(--ink);
+    color: var(--bg);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .su-sync:hover { background: transparent; color: var(--ink); }
+  .su-sync:disabled { opacity: 0.65; cursor: wait; }
+  .su-sync-status {
+    font-size: 12px;
+    color: var(--dim);
+    margin: 0 0 10px;
+    line-height: 1.4;
+  }
+  .su-sync-status.err { color: var(--discard); }
+  .su-cmd {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg); border: 1px solid var(--rule); border-radius: 8px;
+    padding: 8px 10px; margin: 8px 0;
+  }
+  .su-cmd code {
+    flex: 1; font-family: var(--font-mono); font-size: 12px; color: var(--ink);
+    overflow: auto; white-space: nowrap;
+  }
+  .su-copy {
+    flex: 0 0 auto; background: none; border: 1px solid var(--rule);
+    color: var(--dim); font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    border-radius: var(--radius-pill); padding: 5px 10px; cursor: pointer;
+  }
+  .su-copy:hover { border-color: var(--ink); color: var(--ink); }
+  .su-actions {
+    display: flex; flex-direction: column; gap: 8px; margin-top: 16px;
+  }
+  .su-primary, .su-ghost {
+    width: 100%; border-radius: var(--radius-pill); padding: 12px 16px;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer;
+  }
+  .su-primary {
+    background: var(--ink); color: var(--bg); border: 1px solid var(--ink);
+  }
+  .su-primary:disabled { opacity: 0.55; cursor: wait; }
+  .su-ghost {
+    background: transparent; color: var(--dim); border: 1px solid var(--rule);
+  }
+  .su-ghost:hover { border-color: var(--ink); color: var(--ink); }
+
+  .ru-footer {
+    flex: none;
+    padding: 8px 16px 14px;
+    display: flex; flex-direction: row; justify-content: flex-end;
+    border-top: 1px solid var(--rule);
+    margin-top: auto;
+  }
+  .ru-coffee {
+    font-family: var(--font-mono); font-size: 9px; font-weight: 400;
+    letter-spacing: 0.04em; color: var(--dim); text-decoration: none;
+    opacity: 0.7; border-bottom: 1px solid transparent;
+    transition: color 0.15s, opacity 0.15s, border-color 0.15s;
+  }
+  .ru-coffee:hover { color: var(--body); opacity: 1; border-bottom-color: var(--rule-strong); }
+
+  @media (max-width: 560px) {
+    .ru-regmarks { display: none; }
+    .ru-app { border: none; box-shadow: none; max-width: none; }
+  }
+</style>
+<script>
+  (function () {
+    var KEY = 'rsw-theme';
+    function apply(theme) {
+      var t = theme === 'light' ? 'light' : 'dark';
+      if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      else document.documentElement.removeAttribute('data-theme');
+      try { localStorage.setItem(KEY, t); } catch (e) {}
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', t === 'light' ? '#FFFFFF' : '#0F0F11');
+    }
+    function current() {
+      try { return localStorage.getItem(KEY) || 'dark'; } catch (e) { return 'dark'; }
+    }
+    apply(current());
+    document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('[data-theme-toggle]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          apply(current() === 'light' ? 'dark' : 'light');
+        });
+      });
+    });
+  })();
+</script>
+</head>
+<body>
+  <div class="ru-regmarks" aria-hidden="true">
+    <div class="ru-regmark ru-regmark-tl"></div>
+    <div class="ru-regmark ru-regmark-tr"></div>
+    <div class="ru-regmark ru-regmark-bl"></div>
+    <div class="ru-regmark ru-regmark-br"></div>
+    <div class="ru-regmark-cap ru-regmark-cap-tl">USAGE GATE</div>
+    <div class="ru-regmark-cap ru-regmark-cap-br">RU · 2026</div>
+  </div>
+
+  <main class="ru-app">
+    <header class="ru-header">
+      <div class="ru-header-row">
+        <div class="ru-logo" aria-label="Riah Usage">
+          <span class="riah-brand" aria-hidden="true">Riah</span>
+          <span class="riah-product" aria-hidden="true">Usage</span>
+        </div>
+        <div class="ru-header-tools">
+          <button class="ru-text-btn" type="button" id="btn-connect">Connect</button>
+          <button class="theme-toggle" type="button" data-theme-toggle title="Toggle light / dark" aria-label="Toggle light / dark">◐</button>
+        </div>
+      </div>
+    </header>
+    <div class="ru-sub" id="when" aria-live="polite">
+      <span class="ru-dot" id="live-dot" aria-hidden="true"></span>
+      <span class="ru-sub-label" id="live-label">Live</span>
+      <button class="ru-text-btn ru-refresh" type="button" id="btn-refresh-all"
+              title="Re-read every meter now">Refresh all</button>
+    </div>
+
+    <div id="setup" hidden></div>
+
+    <div id="board">
+      <ul class="ru-list" id="list"><li class="ru-empty">Run npm start</li></ul>
+      <div id="missing"></div>
+    </div>
+
+    <footer class="ru-footer">
+      <a class="ru-coffee" id="coffee" href="https://buymeacoffee.com/riahstudio" target="_blank" rel="noopener">Buy me a coffee</a>
+    </footer>
+  </main>
+
+<script src="config.js"></script>
+<script src="setup.js"></script>
+<script src="usage-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

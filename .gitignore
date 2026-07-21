@@ -1,0 +1,23 @@
+node_modules/
+
+# Browser profiles left over from the old Gemini sync.
+# The wildcard is load-bearing: ".gemini-sync-profile/" does NOT match
+# ".gemini-sync-profile-brave/", and that one missing character is how a real
+# 31MB Brave profile -- browsing history, cookie DB, saved-login DB -- got
+# committed to this repo. Never narrow this pattern.
+.gemini-sync-profile*/
+
+# Local snapshots and working files. SECURITY.md promises these stay out of
+# git; until 2026-07-19 this file did not actually deliver that.
+usage-data.js
+scratch/
+active-writes/
+inbox/
+swipe-verdicts/
+
+# Build and OS litter
+**/__pycache__/
+*.pyc
+*.log
+.DS_Store
+Thumbs.db
