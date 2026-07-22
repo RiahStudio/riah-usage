@@ -314,6 +314,36 @@ function Get-WorstMeters {
 }
 
 function Update-TrayIcon {
+  $asset = Join-Path (Split-Path -Parent $PSScriptRoot) 'assets\riah-usage-32.png'
+  if (Test-Path -LiteralPath $asset) {
+    $src = $null
+    $bmp = $null
+    $g = $null
+    try {
+      $src = [System.Drawing.Image]::FromFile($asset)
+      $bmp = New-Object System.Drawing.Bitmap(32, 32)
+      $g = [System.Drawing.Graphics]::FromImage($bmp)
+      $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+      $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+      $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+      $g.DrawImage($src, 0, 0, 32, 32)
+      $g.Dispose(); $g = $null
+      $src.Dispose(); $src = $null
+      $h = $bmp.GetHicon()
+      $notify.Icon = [System.Drawing.Icon]::FromHandle($h)
+      if ($script:HasNative -and $script:IconHandle -ne [IntPtr]::Zero) {
+        try { [RiahTray.Native]::DestroyIcon($script:IconHandle) | Out-Null } catch {}
+      }
+      $script:IconHandle = $h
+      $bmp.Dispose(); $bmp = $null
+      return
+    } catch {
+      try { if ($null -ne $g) { $g.Dispose() } } catch {}
+      try { if ($null -ne $src) { $src.Dispose() } } catch {}
+      try { if ($null -ne $bmp) { $bmp.Dispose() } } catch {}
+      Write-TrayLog ('icon_asset_fail ' + $_.Exception.Message)
+    }
+  }
   $bmp = New-Object System.Drawing.Bitmap(32, 32)
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   $bg = New-Object System.Drawing.SolidBrush($C.Bg)
