@@ -958,6 +958,21 @@ async function main() {
     );
   } catch (_) {}
 
+  // Phone board on riahstudio.com/usage — best-effort push, never fails the collect.
+  try {
+    const { pushOnce } = require('./push-phone');
+    await pushOnce().then((result) => {
+      if (result && result.skipped) return;
+      if (result && result.ok) {
+        console.log(`Phone board updated (${result.providers || '?'} providers).`);
+      } else if (result) {
+        console.warn('Phone board push failed:', result.status || '', result.body || result.reason || '');
+      }
+    });
+  } catch (e) {
+    console.warn('Phone board push error:', e && e.message ? e.message : e);
+  }
+
   for (const p of providers) {
     const bits = p.meters
       .map((m) => `${m.label} ${m.usedPercent}%`)

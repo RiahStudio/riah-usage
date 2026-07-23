@@ -11,7 +11,20 @@
     return g.ready !== false;
   });
   var isHttp = location.protocol === 'http:' || location.protocol === 'https:';
+  var phoneMode = !!cfg.phoneMode;
+  var basePath = String(cfg.basePath || '')
+    .trim()
+    .replace(/\/$/, '');
   var syncPollTimer = null;
+
+  function withBase(p) {
+    var path = String(p || '');
+    if (!path) return basePath || '/';
+    if (/^https?:\/\//i.test(path)) return path;
+    if (!basePath) return path;
+    if (path.charAt(0) !== '/') path = '/' + path;
+    return basePath + path;
+  }
 
   // Escape anything before it goes into innerHTML. Provider names, plans and
   // meter labels all arrive from vendor APIs -- they are not ours, so they are
@@ -267,12 +280,17 @@
       btn.disabled = true;
       if (!opts.quietLabel) btn.textContent = opts.busyLabel || 'Checking…';
     }
-    return fetch('/api/refresh', { method: 'POST' })
-      .then(function (r) {
-        return r.json();
-      })
+    var chain = phoneMode
+      ? Promise.resolve()
+      : fetch(withBase('/api/refresh'), { method: 'POST', credentials: 'same-origin' }).then(function (r) {
+          return r.json();
+        });
+    return chain
       .then(function () {
-        return fetch('/usage-data.js?t=' + Date.now(), { cache: 'no-store' }).then(function (r) {
+        return fetch(withBase('/usage-data.js') + '?t=' + Date.now(), {
+          cache: 'no-store',
+          credentials: 'same-origin',
+        }).then(function (r) {
           return r.text();
         });
       })
@@ -298,6 +316,11 @@
   }
 
   function openConnectFor(aiId) {
+    if (phoneMode) {
+      // Site board uses the workspace connection settings, not the local wizard.
+      location.href = cfg.connectUrl || '/settings/providers';
+      return;
+    }
     showSetup(true);
     var want = loadWant();
     if (aiId && want.indexOf(aiId) === -1) {
@@ -1075,6 +1098,13 @@
   var connectBtn = document.getElementById('btn-connect');
   if (connectBtn) {
     connectBtn.addEventListener('click', function () {
+      if (phoneMode) {
+        location.href =
+          connectBtn.getAttribute('data-phone-connect') ||
+          cfg.connectUrl ||
+          '/settings/providers';
+        return;
+      }
       if (setupOpen) showSetup(false);
       else {
         showSetup(true);
@@ -1098,30 +1128,49 @@
 
   if (isHttp) {
     var pollMs = Number(cfg.pollMs) || 15000;
+    function applyUsageText(text, liveFlag) {
+      var m = text.match(/window\.USAGE_DATA\s*=\s*(\{[\s\S]*\});?\s*$/);
+      if (!m) {
+        setLive(false);
+        return;
+      }
+      try {
+        var keepSetup = setupOpen;
+        lastGeneratedAt = null;
+        render(JSON.parse(m[1]), liveFlag !== false);
+        if (keepSetup) showSetup(true);
+      } catch (e) {
+        setLive(false);
+      }
+    }
     function poll() {
-      fetch('/api/status?t=' + Date.now(), { cache: 'no-store' })
+      if (phoneMode) {
+        fetch(withBase('/usage-data.js') + '?t=' + Date.now(), {
+          cache: 'no-store',
+          credentials: 'same-origin',
+        })
+          .then(function (r) {
+            return r.ok ? r.text() : Promise.reject();
+          })
+          .then(function (text) {
+            applyUsageText(text, true);
+          })
+          .catch(function () {
+            setLive(false);
+          });
+        return;
+      }
+      fetch(withBase('/api/status') + '?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) {
           return r.ok ? r.json() : Promise.reject();
         })
         .then(function (st) {
-          return fetch('/usage-data.js?t=' + Date.now(), { cache: 'no-store' })
+          return fetch(withBase('/usage-data.js') + '?t=' + Date.now(), { cache: 'no-store' })
             .then(function (r) {
               return r.ok ? r.text() : Promise.reject();
             })
             .then(function (text) {
-              var m = text.match(/window\.USAGE_DATA\s*=\s*(\{[\s\S]*\});?\s*$/);
-              if (!m) {
-                setLive(false);
-                return;
-              }
-              try {
-                var keepSetup = setupOpen;
-                lastGeneratedAt = null;
-                render(JSON.parse(m[1]), st.lastCollectOk !== false);
-                if (keepSetup) showSetup(true);
-              } catch (e) {
-                setLive(false);
-              }
+              applyUsageText(text, st.lastCollectOk !== false);
             });
         })
         .catch(function () {
