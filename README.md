@@ -64,7 +64,10 @@ We never ask for passwords or API keys. Tap **Connect** anytime later to add mor
 
 ## Optional tip
 
-Totally optional. Edit `config.js` with your Buy Me a Coffee URL when you have one — a quiet “if this helped” link appears in the footer. Until then it’s hidden.
+Being upfront: the footer carries a quiet “Buy me a coffee” link, and it points at
+me. That's the only outbound link in the app and the only ask in the whole project.
+Forking it for yourself? Put your own page in `config.js`, or set that line to `""`
+and the link disappears.
 
 ## What you get
 

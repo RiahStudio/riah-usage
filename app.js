@@ -48,7 +48,10 @@
   }
 
   var coffee = document.getElementById('coffee');
-  if (coffee && cfg.buyMeACoffeeUrl) coffee.href = cfg.buyMeACoffeeUrl;
+  // config.js is the user's own file, not provider data, so this is belt-and-
+  // braces -- but an unguarded href sitting next to safeUrl() reads as an
+  // oversight to anyone reading the source, and it costs nothing to be consistent.
+  if (coffee && cfg.buyMeACoffeeUrl) coffee.href = safeUrl(cfg.buyMeACoffeeUrl);
   if (coffee && (!cfg.buyMeACoffeeUrl || /YOUR_HANDLE/i.test(cfg.buyMeACoffeeUrl))) {
     coffee.hidden = true;
   }

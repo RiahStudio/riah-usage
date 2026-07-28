@@ -819,15 +819,22 @@ async function main() {
   const cursor = cursorProviderFromPull(cursorRaw);
   const kimi = pullKimiFrom(pyPull('pull-kimi.py'));
 
-  // Glance order — never drop a working meter just because one refresh glitched
+  // Glance order — never drop a working meter just because one refresh glitched.
+  //
+  // This is only the DEFAULT: drag-to-reorder on the page writes scratch/order.json
+  // and wins below. But the default is what every new install sees on its first
+  // run, so it leads with the ones people actually pay for — Claude, Cursor,
+  // Codex — and puts Gemini last. Gemini used to sit second here purely because
+  // of how this desk grew up; Google has since retired Code Assist for personal
+  // accounts, so for most people it is the card least likely to report anything.
   const providers = [
     keepProvider('Claude', claude, prevByName),
-    keepProvider('Gemini', gemini, prevByName),
     keepProvider('Cursor', cursor, prevByName),
     keepProvider('Codex', codex, prevByName),
     keepProvider('Grok', grok, prevByName),
-    keepProvider('Copilot', copilot, prevByName),
     keepProvider('Kimi', kimi, prevByName),
+    keepProvider('Copilot', copilot, prevByName),
+    keepProvider('Gemini', gemini, prevByName),
   ].filter(Boolean);
   const live = new Set(providers.map((p) => p.shortName));
   const hints = authHints();
@@ -959,18 +966,25 @@ async function main() {
   } catch (_) {}
 
   // Phone board on riahstudio.com/usage — best-effort push, never fails the collect.
-  try {
-    const { pushOnce } = require('./push-phone');
-    await pushOnce().then((result) => {
-      if (result && result.skipped) return;
-      if (result && result.ok) {
-        console.log(`Phone board updated (${result.providers || '?'} providers).`);
-      } else if (result) {
-        console.warn('Phone board push failed:', result.status || '', result.body || result.reason || '');
-      }
-    });
-  } catch (e) {
-    console.warn('Phone board push error:', e && e.message ? e.message : e);
+  // push-phone.js is an optional local extra, so most copies of the desk simply
+  // do not have it. Require it only when it is there: an unconditional require
+  // printed "Cannot find module './push-phone'" plus a require stack as the very
+  // first thing every other user saw on first run. A feature you don't have is
+  // not an error. A feature you do have that breaks still gets reported below.
+  if (fs.existsSync(path.join(ROOT, 'push-phone.js'))) {
+    try {
+      const { pushOnce } = require('./push-phone');
+      await pushOnce().then((result) => {
+        if (result && result.skipped) return;
+        if (result && result.ok) {
+          console.log(`Phone board updated (${result.providers || '?'} providers).`);
+        } else if (result) {
+          console.warn('Phone board push failed:', result.status || '', result.body || result.reason || '');
+        }
+      });
+    } catch (e) {
+      console.warn('Phone board push error:', e && e.message ? e.message : e);
+    }
   }
 
   for (const p of providers) {
@@ -980,7 +994,11 @@ async function main() {
     const planBit = p.plan
       ? ` [${p.plan}${p.price ? ` · ${p.price}` : ''}]`
       : '';
-    console.log(`${p.shortName}${planBit}: ${bits}`);
+    // A provider that came back with no meters used to print a bare "Gemini: "
+    // — a dangling colon reads as broken. Say what it's actually waiting for.
+    console.log(
+      `${p.shortName}${planBit}: ${bits || p.reconnectHint || p.staleReason || 'no meters yet'}`
+    );
   }
   const offline = connections.filter((c) => !c.connected).map((c) => c.id);
   if (offline.length) console.log('Not connected:', offline.join(', '));
