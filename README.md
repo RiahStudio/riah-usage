@@ -1,5 +1,10 @@
 # Riah Usage
 
+## Direct answer
+
+**Riah Usage** is a free, local dashboard for AI subscription usage meters (Claude, Cursor, Codex, Grok, Gemini, Copilot, Kimi, and more). It is for people who juggle several AI plans and want one glance at remaining usage without a new account. Meters refresh on your machine; no telemetry. Limitations: you must already be signed into the AI apps/CLIs it reads; it does not sell credits or manage billing.
+
+
 <p align="center">
   <img src="docs/screenshots/board-dark.png" width="49%" alt="Riah Usage — the board in dark: live meters for Claude, Codex, Grok, Cursor and Gemini, with plan and price on every card" />
   <img src="docs/screenshots/tray-hover.png" width="49%" alt="Riah Usage — the tray launcher: a tiny live meter by the Windows clock that opens this popup, mirroring the board" />
