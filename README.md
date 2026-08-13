@@ -40,7 +40,7 @@ npm start
 Windows: double-click **`Start Riah Usage.bat`** (first run may install a small helper, then it stays quiet).  
 macOS / Linux: `chmod +x start.sh && ./start.sh`
 
-That starts the desk **in the background**, opens your browser, and refreshes meters about every 5 minutes. Nothing to leave open. To stop later: **`Stop Riah Usage.bat`**.
+That starts the desk **in the background** (no browser popup) and refreshes meters about every 5 minutes. Open the full page from the tray menu when you want it. Nothing to leave open. To stop later: **`Stop Riah Usage.bat`**.
 
 One-shot snapshot (no live loop): `npm run once` then open `index.html`.
 

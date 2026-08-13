@@ -74,6 +74,10 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
+  // Safari (macOS) will skip @font-face if this is octet-stream.
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
 };
 
 function send(res, code, body, type) {
@@ -300,29 +304,66 @@ const server = http.createServer((req, res) => {
   }
 
   // Patch the live usage-data.js so the tray picks up prefs without waiting
-  // for the next 5-minute collect. Keeps meters intact; only touches `hidden`.
-  function patchUsageHidden(hiddenNames) {
+  // for the next 5-minute collect. Keeps meters intact.
+  function writeUsageSnapshot(data) {
     const outJs = path.join(ROOT, 'usage-data.js');
-    if (!fs.existsSync(outJs)) return;
+    const payload =
+      '/* auto-generated — do not hand-edit */\nwindow.USAGE_DATA = ' +
+      JSON.stringify(data, null, 2) +
+      ';\n';
+    const tmp = path.join(ROOT, 'scratch', 'usage-data.js.tmp');
+    fs.mkdirSync(path.join(ROOT, 'scratch'), { recursive: true });
+    fs.writeFileSync(tmp, payload, 'utf8');
     try {
-      const raw = fs.readFileSync(outJs, 'utf8');
-      const i = raw.indexOf('{');
-      const j = raw.lastIndexOf('}');
-      if (i < 0 || j <= i) return;
-      const data = JSON.parse(raw.slice(i, j + 1));
+      fs.renameSync(tmp, outJs);
+    } catch (_) {
+      fs.writeFileSync(outJs, payload, 'utf8');
+    }
+  }
+
+  function readUsageSnapshot() {
+    const outJs = path.join(ROOT, 'usage-data.js');
+    if (!fs.existsSync(outJs)) return null;
+    const raw = fs.readFileSync(outJs, 'utf8');
+    const i = raw.indexOf('{');
+    const j = raw.lastIndexOf('}');
+    if (i < 0 || j <= i) return null;
+    return JSON.parse(raw.slice(i, j + 1));
+  }
+
+  function patchUsageHidden(hiddenNames) {
+    try {
+      const data = readUsageSnapshot();
+      if (!data) return;
       data.hidden = hiddenNames;
-      const payload =
-        '/* auto-generated — do not hand-edit */\nwindow.USAGE_DATA = ' +
-        JSON.stringify(data, null, 2) +
-        ';\n';
-      const tmp = path.join(ROOT, 'scratch', 'usage-data.js.tmp');
-      fs.mkdirSync(path.join(ROOT, 'scratch'), { recursive: true });
-      fs.writeFileSync(tmp, payload, 'utf8');
-      try {
-        fs.renameSync(tmp, outJs);
-      } catch (_) {
-        fs.writeFileSync(outJs, payload, 'utf8');
+      writeUsageSnapshot(data);
+    } catch (_) {}
+  }
+
+  // Drag-to-reorder used to write order.json only. The hover reads this
+  // snapshot, so the tray kept the old card order until the next collect.
+  function patchUsageOrder(orderNames) {
+    try {
+      const data = readUsageSnapshot();
+      if (!data) return;
+      const providers = Array.isArray(data.providers) ? data.providers : [];
+      if (!providers.length || !Array.isArray(orderNames) || !orderNames.length) {
+        return;
       }
+      const rank = new Map(
+        orderNames.map((n, idx) => [String(n).toLowerCase(), idx])
+      );
+      data.providers = providers
+        .map((p, idx) => ({ p, idx }))
+        .sort((a, b) => {
+          const na = String((a.p && a.p.shortName) || '').toLowerCase();
+          const nb = String((b.p && b.p.shortName) || '').toLowerCase();
+          const ra = rank.has(na) ? rank.get(na) : 900 + a.idx;
+          const rb = rank.has(nb) ? rank.get(nb) : 900 + b.idx;
+          return ra - rb;
+        })
+        .map((x) => x.p);
+      writeUsageSnapshot(data);
     } catch (_) {}
   }
 
@@ -349,6 +390,7 @@ const server = http.createServer((req, res) => {
           JSON.stringify(clean),
           'utf8'
         );
+        patchUsageOrder(clean);
         send(res, 200, JSON.stringify({ ok: true }), 'application/json; charset=utf-8');
       } catch (e) {
         send(res, 400, JSON.stringify({ ok: false }), 'application/json; charset=utf-8');

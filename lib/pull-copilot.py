@@ -77,6 +77,7 @@ def discover_token():
     candidates = []
     for base in (
         os.path.join(HOME, ".config", "github-copilot"),
+        os.path.join(HOME, "Library", "Application Support", "github-copilot"),
         os.path.join(HOME, "AppData", "Local", "github-copilot"),
         os.path.join(LOCAL, "github-copilot"),
         os.path.join(APPDATA, "GitHub Copilot"),
@@ -93,6 +94,7 @@ def discover_token():
 
     for path in (
         os.path.join(HOME, ".config", "gh", "hosts.yml"),
+        os.path.join(HOME, "Library", "Application Support", "GitHub CLI", "hosts.yml"),
         os.path.join(APPDATA, "GitHub CLI", "hosts.yml"),
     ):
         if not os.path.isfile(path):

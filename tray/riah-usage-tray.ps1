@@ -272,6 +272,27 @@ function Short-Meter([string]$label) {
   return $l.Substring(0, 8)
 }
 
+# INTERNAL PREVIEW — same switch as config.js previewFiveHourResetLine.
+# Public build forces that flag false; the tray follows so the clock line
+# never ships to strangers until Captain says the preview is ready.
+function Test-PreviewFiveHourReset {
+  $cfg = Join-Path $script:Root 'config.js'
+  if (-not (Test-Path -LiteralPath $cfg)) { return $false }
+  try {
+    $raw = Get-Content -LiteralPath $cfg -Raw -ErrorAction Stop
+    return [bool]($raw -match 'previewFiveHourResetLine\s*:\s*true')
+  } catch { return $false }
+}
+
+function Format-FiveHourClock([string]$iso) {
+  if (-not $iso) { return '' }
+  try {
+    $d = [DateTimeOffset]::Parse($iso).ToLocalTime().DateTime
+  } catch { return '' }
+  if ($d -le (Get-Date)) { return 'soon' }
+  return $d.ToString('h:mm tt').ToLowerInvariant().Replace(' ', '')
+}
+
 function Get-Providers {
   if (-not $script:Data -or -not $script:Data.providers) { return ,@() }
   # Honour "Shown on the board" — unchecked names live in data.hidden (synced
@@ -405,6 +426,28 @@ function Test-DataStale {
   # thread every time the box was drawn -- which froze the tray solid.
   if (((Get-Date) - $script:LastTry).TotalSeconds -lt 15) { return $false }
   return (((Get-Date) - $script:FetchedAt).TotalSeconds -gt 60)
+}
+
+function Load-DataFromDiskIfNewer {
+  # Drag-to-reorder (and hide) patch usage-data.js on disk immediately.
+  # The HTTP poll is every 60s, so without this the hover kept the old
+  # card order until the next minute. Local file read -- no network, so a
+  # down desk cannot freeze the UI thread.
+  $js = Join-Path $script:Root 'usage-data.js'
+  if (-not (Test-Path -LiteralPath $js)) { return }
+  try {
+    $mtime = (Get-Item -LiteralPath $js).LastWriteTime
+    if ($mtime -le $script:FetchedAt) { return }
+    $raw = [string](Get-Content -LiteralPath $js -Raw -ErrorAction Stop)
+    $i = $raw.IndexOf('{'); $j = $raw.LastIndexOf('}')
+    if ($i -lt 0 -or $j -le $i) { return }
+    $parsed = $raw.Substring($i, $j - $i + 1) | ConvertFrom-Json
+    if (-not $parsed) { return }
+    $script:Data = $parsed
+    $script:DeskUp = $true
+    $script:FetchedAt = Get-Date
+    Update-Tray
+  } catch {}
 }
 
 function Load-Data {
@@ -832,6 +875,7 @@ function Show-Popup {
     }
     # No debounce here any more. Hover re-entry is gated by Test-HoverBlocked,
     # so a show request that gets this far is one we actually want.
+    Load-DataFromDiskIfNewer
     if (Test-DataStale) { Load-Data }
     $want = Place-Popup
     $script:PopupOpen = $true
@@ -992,6 +1036,7 @@ $popup.add_Paint({
       $innerL = $PAD
       $innerR = $popup.ClientSize.Width - $PAD
       $innerW = $innerR - $innerL
+      $showFiveHourClock = Test-PreviewFiveHourReset
       foreach ($p in $prov) {
         $name = [string]$p.shortName
         if (-not $name) { $name = [string]$p.name }
@@ -1043,10 +1088,26 @@ $popup.add_Paint({
             $pctBrush = New-Object System.Drawing.SolidBrush((Get-PctColor $pct))
             $psz = $g.MeasureString($pctText, $F.Meter)
             $pctX = [int]($innerR - 6 - $psz.Width)
+
+            # Quiet clock for Claude's 5-hour window (internal preview only).
+            $clockW = 0
+            $pname = ''
+            try { $pname = [string]$p.shortName } catch {}
+            if ($showFiveHourClock -and ($pname -eq 'Claude') -and ($lab -eq '5h')) {
+              $clock = ''
+              try { $clock = Format-FiveHourClock ([string]$m.resetsAt) } catch {}
+              if ($clock) {
+                $csz = $g.MeasureString($clock, $F.Meta)
+                $clockW = [int]$csz.Width + 4
+                $clockX = [int]($pctX - $clockW)
+                [void]$g.DrawString($clock, $F.Meta, $bFaint, $clockX, ($cy + 1))
+              }
+            }
+
             [void]$g.DrawString($pctText, $F.Meter, $pctBrush, $pctX, $cy)
 
             $barX = $innerL + 6 + $LABEL_W
-            $barW = [int]($pctX - $barX - 6)
+            $barW = [int]($pctX - $clockW - $barX - 6)
             if ($barW -lt 28) { $barW = 28 }
             $barY = $cy + [int](($METER_H - $BAR_H) / 2) + 1
             $track = New-Object System.Drawing.SolidBrush($C.Track)

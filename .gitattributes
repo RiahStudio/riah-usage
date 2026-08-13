@@ -1,0 +1,7 @@
+# Keep shell scripts Unix-safe on Windows checkouts (macOS `./start.sh`).
+*.sh text eol=lf
+
+# Font binaries must never be line-ending converted.
+*.woff2 binary
+*.woff binary
+*.ttf binary

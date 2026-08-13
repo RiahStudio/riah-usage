@@ -831,6 +831,32 @@
     );
   }
 
+  // Wall-clock form for the Claude 5-hour window — glanceable ("when can I
+  // work again?") without adding chrome. Internal preview only.
+  function formatResetClock(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    if (d.getTime() - Date.now() <= 0) return 'resets soon';
+    var clock = d.toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    return 'resets ' + clock;
+  }
+
+  function isFiveHourMeter(m) {
+    return /5[- ]?hour/i.test(String((m && m.label) || ''));
+  }
+
+  function wantsFiveHourClock(p, m) {
+    return (
+      !!cfg.previewFiveHourResetLine &&
+      String((p && p.shortName) || '').toLowerCase() === 'claude' &&
+      isFiveHourMeter(m)
+    );
+  }
+
   // Say out loud when a number is not current. A kept-back reading used to look
   // exactly like a live one, under a green LIVE dot -- so a stale 79% read as
   // today's truth when the real figure was 91%. An old number is fine; an old
@@ -915,7 +941,9 @@
               // sync bridge -- neither is ours. Escape before it becomes markup.
               var label = String(m.label == null ? '' : m.label).replace(/^Weekly\s+/i, '');
               if (label.toLowerCase() === 'weekly') label = 'Weekly';
-              var reset = formatReset(m.resetsAt);
+              var reset = wantsFiveHourClock(p, m)
+                ? formatResetClock(m.resetsAt)
+                : formatReset(m.resetsAt);
               return (
                 '<div class="ru-meter"><div class="lab">' +
                 esc(label) +
@@ -924,7 +952,7 @@
                 '">' +
                 Number(m.usedPercent) +
                 '%</div>' +
-                (reset ? '<div class="reset">' + reset + '</div>' : '') +
+                (reset ? '<div class="reset">' + esc(reset) + '</div>' : '') +
                 '</div>'
               );
             })

@@ -512,6 +512,44 @@
   }
   .ru-coffee:hover { color: var(--body); opacity: 1; border-bottom-color: var(--rule-strong); }
 
+  /* TV / large screens: the board is phone-first (520px column). On a TV WebView
+     that renders as a skinny strip with tiny unreadable text (friend install on
+     Android TV, 2026-08-09). Fill the screen, flow cards into columns, scale type.
+     Scoped to hover:none so it only fires on TV/touch WebViews -- a desktop
+     browser with a mouse keeps the original vertical column (Captain, 2026-08-11). */
+  @media (min-width: 900px) and (hover: none) {
+    .ru-regmarks { display: none; }
+    .ru-app { max-width: none; border: none; box-shadow: none; }
+    .ru-header { padding: 20px 32px 0; }
+    .ru-sub { padding: 14px 32px 4px; }
+    .ru-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 10px;
+      padding: 16px 32px 28px;
+    }
+    .ru-logo .riah-brand { font-size: 28px; }
+    .ru-logo .riah-product { font-size: 24px; }
+    .ru-sub-label { font-size: 12px; }
+    .ru-text-btn { font-size: 12px; height: 30px; padding: 0 14px; }
+    .ru-ai { font-size: 16px; }
+    .ru-plan { font-size: 10px; }
+    .ru-price { font-size: 11px; }
+    .ru-meter .lab { font-size: 10px; }
+    .ru-meter .num { font-size: 19px; }
+    .ru-meter .reset { font-size: 10px; }
+    .ru-stale, .ru-stale-why { font-size: 12px; }
+    .ru-footer { padding: 12px 32px 20px; }
+    #missing { margin: 20px 32px 0; padding-top: 16px; }
+    .ru-miss { font-size: 13px; }
+    .ru-empty { font-size: 16px; padding: 48px 20px; }
+    #setup { padding: 12px 32px 32px; }
+    .su-intro h1 { font-size: 26px; }
+    .su-intro p { font-size: 15px; }
+    .su-blurb, .su-step, .su-sync-status { font-size: 14px; }
+    .su-name { font-size: 16px; }
+  }
+
   @media (max-width: 560px) {
     .ru-regmarks { display: none; }
     .ru-app { border: none; box-shadow: none; max-width: none; }

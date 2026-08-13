@@ -95,13 +95,24 @@ if ($deskCode -ne 0) {
 }
 Ok 'desk running'
 
+# --- UI snapshots (Captain, 2026-08-11) ---------------------------------------
+# One small PNG of the board AND one of the tray popup per launch, rotated at 7,
+# so an unrequested UI change is easy to spot and revert (compare against
+# design-locks/). Fire-and-forget; never blocks the launch.
+$snap = Join-Path (Split-Path -Parent $ROOT) '_shared-agent-rules\bin\ui-snapshot.mjs'
+if (Test-Path $snap) {
+  Start-Process -WindowStyle Hidden -FilePath $node -ArgumentList @(
+    ('"' + $snap + '"'), ('"' + $ROOT + '"'), 'http://127.0.0.1:8775', '--label', 'launch'
+  )
+}
+
 # --- start the tray ----------------------------------------------------------
 Say ''
 Say 'Starting the tray icon...'
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'restart-tray.ps1')
 
 Say ''
-Say 'Done. Meters are by the clock; the page is at http://127.0.0.1:8775/'
+Say 'Done. Meters are by the clock. Open the full page from the tray menu when you want it.'
 Say ''
 Start-Sleep -Seconds 4
 exit 0

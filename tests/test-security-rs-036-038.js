@@ -178,6 +178,49 @@ async function main() {
       'scratch/hidden.json missing or wrong'
     );
 
+    fs.writeFileSync(
+      path.join(dir, 'usage-data.js'),
+      'window.USAGE_DATA=' +
+        JSON.stringify({
+          providers: [{ shortName: 'Codex' }, { shortName: 'Cursor' }, { shortName: 'Grok' }],
+        }) +
+        ';\n'
+    );
+    r = await fetch(`${BASE}/api/order`, {
+      method: 'POST',
+      headers: { Origin: HOSTILE, 'Content-Type': 'application/json' },
+      body: JSON.stringify(['Cursor', 'Codex', 'Grok']),
+    });
+    check('cross-site /api/order is refused', r.status === 403, `got ${r.status}`);
+    check(
+      'hostile order list was not written',
+      !fs.existsSync(path.join(dir, 'scratch', 'order.json')),
+      'scratch/order.json appeared after a refused request'
+    );
+
+    r = await fetch(`${BASE}/api/order`, {
+      method: 'POST',
+      headers: { Origin: BASE, 'Content-Type': 'application/json' },
+      body: JSON.stringify(['Cursor', 'Codex', 'Grok']),
+    });
+    check('same-origin /api/order still works', r.status === 200, `got ${r.status}`);
+    check(
+      'same-origin order list was written',
+      fs.existsSync(path.join(dir, 'scratch', 'order.json')) &&
+        JSON.stringify(
+          JSON.parse(fs.readFileSync(path.join(dir, 'scratch', 'order.json'), 'utf8'))
+        ) === JSON.stringify(['Cursor', 'Codex', 'Grok']),
+      'scratch/order.json missing or wrong'
+    );
+    const snapRaw = fs.readFileSync(path.join(dir, 'usage-data.js'), 'utf8');
+    const snap = JSON.parse(snapRaw.slice(snapRaw.indexOf('{'), snapRaw.lastIndexOf('}') + 1));
+    check(
+      'same-origin order also reorders the live snapshot',
+      Array.isArray(snap.providers) &&
+        snap.providers.map((p) => p.shortName).join(',') === 'Cursor,Codex,Grok',
+      `got ${(snap.providers || []).map((p) => p.shortName).join(',')}`
+    );
+
     // A missing Origin must not be a way around the check on state-changing calls.
     r = await fetch(`${BASE}/api/refresh`, { method: 'POST' });
     check('missing Origin is refused on a state-changing POST', r.status === 403, `got ${r.status}`);
@@ -198,6 +241,19 @@ async function main() {
 
     r = await fetch(`${BASE}/`);
     check('the dashboard page still loads', r.status === 200, `got ${r.status}`);
+
+    const fontDir = path.join(dir, 'assets', 'fonts');
+    fs.mkdirSync(fontDir, { recursive: true });
+    fs.copyFileSync(
+      path.join(REPO, 'assets', 'fonts', 'space-mono-latin-400-normal.woff2'),
+      path.join(fontDir, 'space-mono-latin-400-normal.woff2')
+    );
+    r = await fetch(`${BASE}/assets/fonts/space-mono-latin-400-normal.woff2`);
+    check(
+      'woff2 is served as font/woff2 (Safari/macOS)',
+      r.status === 200 && r.headers.get('content-type') === 'font/woff2',
+      `status=${r.status} type=${r.headers.get('content-type')}`
+    );
 
     r = await fetch(`${BASE}/api/gemini-usage`, {
       method: 'POST',

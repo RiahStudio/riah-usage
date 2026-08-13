@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Customer launcher: start the desk in the background (no terminal left open),
- * then open the browser. If already running, just open the browser.
+ * Customer launcher: start the desk in the background (no terminal left open).
+ * Does not open a browser — use the tray "Open Riah Usage" (or set
+ * RIAH_USAGE_OPEN_BROWSER=1) when you want the full page.
  */
 'use strict';
 
@@ -33,6 +34,9 @@ function sleep(ms) {
 }
 
 function openBrowser(url) {
+  // Default: stay quiet. Browser popups steal focus mid-task.
+  // Opt in: RIAH_USAGE_OPEN_BROWSER=1. Legacy NO_BROWSER=1 still skips.
+  if (process.env.RIAH_USAGE_OPEN_BROWSER !== '1') return;
   if (process.env.RIAH_USAGE_NO_BROWSER === '1') return;
   const plat = process.platform;
   if (plat === 'win32') exec(`start "" "${url}"`);
@@ -74,7 +78,7 @@ async function main() {
     try {
       require('./tray/launch-tray.js').maybeStartTray(ROOT);
     } catch (_) {}
-    openBrowser(URL);
+    openBrowser(URL); // only if RIAH_USAGE_OPEN_BROWSER=1
     return;
   }
 
@@ -99,8 +103,6 @@ async function main() {
 
   const ready = await waitUntilUp(90 * 1000);
   if (!ready) {
-    // Still open the URL so the user sees a clear browser error if something failed.
-    openBrowser(URL);
     process.exitCode = 1;
     return;
   }
@@ -108,7 +110,7 @@ async function main() {
   try {
     require('./tray/launch-tray.js').maybeStartTray(ROOT);
   } catch (_) {}
-  openBrowser(URL);
+  openBrowser(URL); // only if RIAH_USAGE_OPEN_BROWSER=1
 }
 
 main().catch((e) => {

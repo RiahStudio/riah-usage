@@ -7,15 +7,30 @@ import sys
 import urllib.error
 import urllib.request
 
+def state_db_candidates():
+    """Cursor's login DB — Windows %APPDATA%, macOS Library, Linux ~/.config."""
+    home = os.path.expanduser("~")
+    appdata = os.environ.get("APPDATA") or ""
+    local = os.environ.get("LOCALAPPDATA") or ""
+    rel = os.path.join("Cursor", "User", "globalStorage", "state.vscdb")
+    return [
+        os.path.join(appdata, rel) if appdata else "",
+        os.path.join(local, rel) if local else "",
+        os.path.join(home, "Library", "Application Support", rel),
+        os.path.join(home, ".config", rel),
+    ]
+
+
+def find_state_db():
+    for p in state_db_candidates():
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
 def main():
-    db = os.path.join(
-        os.environ.get("APPDATA", ""),
-        "Cursor",
-        "User",
-        "globalStorage",
-        "state.vscdb",
-    )
-    if not os.path.exists(db):
+    db = find_state_db()
+    if not db:
         print(json.dumps({"ok": False, "error": "no_db"}))
         return 0
 
