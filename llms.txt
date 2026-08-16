@@ -1,0 +1,19 @@
+# Riah Usage
+> Free, open-source local dashboard for AI subscription usage meters — Claude, Cursor, Codex, Grok, Gemini, Copilot, Kimi. Part of Riah Studio.
+> Last updated: 2026-08-16
+> Repo: https://github.com/RiahStudio/riah-usage
+
+## What this is
+- Local dashboard tracking AI subscription usage (Claude, Cursor, Codex, Grok, Gemini, Copilot, Kimi, and more).
+- Runs on your own machine; no accounts, no cloud.
+- Answer-first: see exactly how much of each subscription you've burned.
+
+## Quick facts
+- Developer: Riah Studio (Riah Harris)
+- Platform: local web dashboard (Windows-friendly)
+- Data: stays on your machine
+
+## For agents
+- Public repo — indexable, cloneable.
+- README.md has setup + usage instructions.
+- Useful for anyone building tools that monitor AI subscription quotas.
