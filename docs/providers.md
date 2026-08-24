@@ -42,18 +42,18 @@ consumer Gemini app's usage page. They are different meters.
 
 ## The popular ones, and where each stands (checked 2026-07-21)
 
-Captain's ask: add every popular AI meter we can. The question for each is the
-one above — which app on this computer already holds a login? — and it sorts
-the whole field. Checked against a real machine, not guessed:
+Every popular meter we can pull honestly. The question for each is the one
+above — which app on this computer already holds a login? — and it sorts the
+whole field. Checked against a real machine, not guessed:
 
 | AI | Who holds a login on disk? | Verdict |
 |----|----------------------------|---------|
-| **Kimi (Moonshot)** | Kimi Code CLI — `~/.kimi-code/credentials/` | **Pulled — live on this desk.** Token refresh is native and rotation-safe; meters need an active Kimi for Coding plan (a plain "no plan on this account" state shows otherwise). |
+| **Kimi (Moonshot)** | Kimi Code CLI — `~/.kimi-code/credentials/` | **Pulled** when that CLI is signed in. Token refresh is native and rotation-safe; meters need an active Kimi for Coding plan (a plain "no plan on this account" state shows otherwise). |
 | **Antigravity** (Google's IDE, where individual Gemini quota moved) | Login sits inside the IDE's encrypted storage — no token file anywhere under `~/.gemini/antigravity*` | No honest pull today. Gemini quota still shows via **Sync Gemini**. Revisit if Antigravity ever writes a file login. |
 | **Qwen Code** | Its CLI caches OAuth like the old Gemini CLI (`~/.qwen/`) | Recipe should mirror `pull-gemini-cli.py`, but no login here to prove it on. PR welcome — the bar is a pull that ran against a real account. |
 | **Windsurf** | The editor keeps its login; usage API unverified | Not yet — needs a machine with a real login to map honestly. PR welcome. |
 | **Perplexity · Midjourney · Suno · ElevenLabs · Runway · v0 · Lovable · Replit** | Nothing — web subscriptions leave no login file on disk | Would need the Sync-page pattern (like Gemini), one usage page mapped per product. Candidates; deliberately not shipped as guesses. |
-| **OpenRouter · DeepSeek · Mistral (API)** | API keys only | Out on purpose — this desk never asks for an API key. |
+| **OpenRouter · DeepSeek · Mistral (API)** | API keys only | Out on purpose — the board never asks for an API key. |
 | **Ollama · LM Studio** | Local and unmetered | Nothing to meter. |
 
 ## Security

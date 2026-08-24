@@ -49,8 +49,8 @@ check(
     'Heavy'
 );
 check(
-  'infer Heavy from monthlyLimit >= 100000',
-  inferGrokPlan({ hasGrokCodeAccess: true }, { monthlyLimit: { val: 100000 } }) === 'Heavy'
+  'a large monthlyLimit alone is not Heavy — that is the named-tier or local pin',
+  inferGrokPlan({ hasGrokCodeAccess: true }, { monthlyLimit: { val: 100000 } }) === 'SuperGrok'
 );
 check(
   'infer SuperGrok when code access and no Heavy signal',
