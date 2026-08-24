@@ -11,6 +11,7 @@ The desk’s **Connect** screen walks people through these steps with copy butto
 | **Cursor** | Cursor desktop signed in | Plan / Auto / API % |
 | **Codex** | `codex login` | Weekly (+ 5-hour when returned) |
 | **Grok** | `grok login` | Weekly + product splits |
+| **Grok Bot** | Cursor or Grok Bot signed in (same Cursor account) | Weekly % |
 | **Gemini** | **Sync Gemini** in Connect (one click, your browser) | Current usage · Weekly limit |
 | **Copilot** | Copilot in an editor, or `gh auth login` | Credits / Chat / Completions (plan-dependent) |
 | **Kimi** | `kimi login` (device-code flow) | Kimi for Coding windows (needs an active plan) |

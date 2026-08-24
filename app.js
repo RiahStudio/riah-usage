@@ -74,6 +74,18 @@
       return [];
     }
   }
+  // Snapshot (tray + last collect) can un-hide a card the page still has
+  // unchecked from an older visit. Drop names the snapshot no longer lists;
+  // never add hides from a stale file (Connect POSTs those live).
+  function adoptSnapshotHidden(data) {
+    if (!data || !Array.isArray(data.hidden)) return;
+    var file = data.hidden.map(String);
+    var ls = loadHidden();
+    var next = ls.length ? ls.filter(function (n) { return file.indexOf(n) !== -1; }) : file.slice();
+    try {
+      localStorage.setItem(HIDDEN_KEY, JSON.stringify(next));
+    } catch (e) {}
+  }
   function saveHidden(names) {
     try {
       localStorage.setItem(HIDDEN_KEY, JSON.stringify(names));
@@ -1051,6 +1063,7 @@
 
   function render(data, liveOk) {
     latestData = data;
+    adoptSnapshotHidden(data);
     if (typeof liveOk === 'boolean') setLive(liveOk);
     else if (data && (data.providers || []).length) setLive(isHttp);
     else setLive(false);

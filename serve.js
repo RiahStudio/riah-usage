@@ -451,9 +451,10 @@ const server = http.createServer((req, res) => {
         id = String((JSON.parse(body) || {}).id || '').toLowerCase();
       } catch {}
       const RECIPES = {
-        claude: { cmd: 'claude', note: 'Then type /login inside Claude Code.' },
+        claude: { cmd: 'claude auth login', note: 'Finish the browser sign-in.' },
         codex: { cmd: 'codex login', note: 'Finish the browser sign-in.' },
         grok: { cmd: 'grok login', note: 'Finish the browser sign-in.' },
+        'grok bot': { cmd: null, note: 'Open Cursor or Grok Bot and sign in.' },
         gemini: { cmd: null, note: 'Use Connect → Gemini → Sync Gemini.' },
         copilot: { cmd: 'gh auth login', note: 'Follow the prompts.' },
         cursor: { cmd: null, note: 'Open the Cursor app and sign in.' },

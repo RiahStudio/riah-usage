@@ -2,7 +2,7 @@
 
 ## Direct answer
 
-**Riah Usage** is a free, local dashboard for AI subscription usage meters (Claude, Cursor, Codex, Grok, Gemini, Copilot, Kimi, and more). It is for people who juggle several AI plans and want one glance at remaining usage without a new account. Meters refresh on your machine; no telemetry. Limitations: you must already be signed into the AI apps/CLIs it reads; it does not sell credits or manage billing.
+**Riah Usage** is a free, local dashboard for AI subscription usage meters (Claude, Cursor, Codex, Grok, Grok Bot, Gemini, Copilot, Kimi, and more). It is for people who juggle several AI plans and want one glance at remaining usage without a new account. Meters refresh on your machine; no telemetry. Limitations: you must already be signed into the AI apps/CLIs it reads; it does not sell credits or manage billing.
 
 
 <p align="center">
@@ -10,7 +10,7 @@
   <img src="docs/screenshots/tray-hover.png" width="49%" alt="Riah Usage — the tray launcher: a tiny live meter by the Windows clock that opens this popup, mirroring the board" />
 </p>
 
-**Free.** A local, one-glance dashboard for your AI subscription meters — Claude, Cursor, Codex, Grok, Gemini, Copilot, and Kimi — in a clean Ink/Mono UI.
+**Free.** A local, one-glance dashboard for your AI subscription meters — Claude, Cursor, Codex, Grok, Grok Bot, Gemini, Copilot, and Kimi — in a clean Ink/Mono UI.
 
 Drag cards to put the AIs you care about first. Order sticks in your browser. No accounts, no cloud sync, no telemetry. Your logins stay on your machine.
 
@@ -24,6 +24,7 @@ Drag cards to put the AIs you care about first. Order sticks in your browser. No
   - Cursor → Cursor desktop signed in
   - Codex → Codex CLI signed in
   - Grok → Grok Build CLI signed in
+  - Grok Bot → Cursor or Grok Bot signed in (same Cursor account)
   - Gemini → Sync Gemini (one click; sign into Google only if asked)
 
 No accounts with us. No API keys pasted into Riah Usage. No terminal left open while it runs.
@@ -83,6 +84,7 @@ and the link disappears.
 | Cursor | Plan · Auto · API |
 | Codex | Weekly (+ 5-hour when ChatGPT returns it) |
 | Grok | Weekly · product splits |
+| Grok Bot | Weekly (Cursor account) |
 | Copilot | Credits · Chat · Completions (plan-dependent) |
 | Kimi | Kimi for Coding windows (weekly / 5-hour, plan-dependent) |
 

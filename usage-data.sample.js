@@ -7,6 +7,7 @@ window.USAGE_DATA = {
     { id: "Cursor", connected: false },
     { id: "Codex", connected: false },
     { id: "Grok", connected: false },
+    { id: "Grok Bot", connected: false },
     { id: "Gemini", connected: false },
   ],
   missing: [

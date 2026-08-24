@@ -123,6 +123,20 @@ def main():
         except Exception as e:
             out["sources"]["period_error"] = str(e)[:120]
 
+    # Grok Bot weekly (Cursor-metered, not grok.com). Same login as Cursor.
+    # DashboardService is the live path; SandBoxService 404s on this account.
+    for url in (
+        "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus",
+        "https://api2.cursor.sh/aiserver.v1.SandBoxService/GetSandUsageStatus",
+    ):
+        try:
+            out["sources"]["sand_usage"] = post(url, {})
+            out["sources"]["sand_usage_url"] = url
+            out["sources"].pop("sand_usage_error", None)
+            break
+        except Exception as e:
+            out["sources"]["sand_usage_error"] = str(e)[:120]
+
     print(json.dumps(out))
     return 0
 

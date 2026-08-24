@@ -10,10 +10,8 @@ window.RIAH_USAGE_SETUP = [
     installUrl: "https://docs.anthropic.com/en/docs/claude-code/overview",
     steps: [
       { text: "Install Claude Code if you don’t have it yet (docs link above)." },
-      { text: "Open a terminal and start Claude:" },
-      { cmd: "claude" },
-      { text: "Inside Claude, run this and finish the browser login:" },
-      { cmd: "/login" },
+      { text: "In a terminal, run this and finish the browser login (the welcome screen is not enough):" },
+      { cmd: "claude auth login" },
       { text: "When you’re signed in, tap Continue — we’ll pick up the meters." },
     ],
   },
@@ -58,6 +56,20 @@ window.RIAH_USAGE_SETUP = [
       { text: "Sign in from a terminal (also do this again if the card says Reconnect):" },
       { cmd: "grok login" },
       { text: "Finish sign-in, then tap Continue." },
+    ],
+  },
+  {
+    id: "Grok Bot",
+    title: "Grok Bot",
+    blurb: "Weekly Grok Bot usage — same login as Cursor",
+    ready: true,
+    installLabel: "Grok Bot",
+    installUrl: "https://cursor.com/",
+    steps: [
+      { text: "Grok Bot weekly usage lives on your Cursor account, not grok.com." },
+      { text: "Install Cursor or Grok Bot and sign in with the same account you pay on." },
+      { text: "Leave Cursor installed — we read that login from this computer." },
+      { text: "Tap Continue when you’re signed in." },
     ],
   },
   {

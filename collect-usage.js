@@ -11,6 +11,9 @@ const https = require('https');
 const http = require('http');
 const os = require('os');
 const { spawnSync } = require('child_process');
+const { parseGrokBilling } = require('./lib/parse-grok-billing');
+const { parseSandWeeklyUsage } = require('./lib/parse-sand-usage');
+const { prettyPlan, planPrice, inferGrokPlan } = require('./lib/plan-labels');
 
 const ROOT = __dirname;
 const OUT_JS = path.join(ROOT, 'usage-data.js');
@@ -109,104 +112,6 @@ function pyPull(scriptName) {
   } catch {
     return null;
   }
-}
-
-function prettyPlan(raw, providerName) {
-  if (raw == null || raw === '') return null;
-  const s = String(raw).trim();
-  const low = s.toLowerCase().replace(/[_-]+/g, ' ');
-  if (providerName === 'Codex' || providerName === 'ChatGPT') {
-    if (low === 'plus') return 'Plus';
-    if (low === 'pro') return 'Pro';
-    if (low === 'free' || low === 'freeplan') return 'Free';
-    if (low === 'team' || low === 'enterprise') return s.charAt(0).toUpperCase() + s.slice(1);
-  }
-  if (providerName === 'Cursor') {
-    if (low === 'pro') return 'Pro';
-    if (low === 'pro plus' || low === 'pro_plus' || low === 'proplus') return 'Pro+';
-    if (low === 'business' || low === 'team') return s.charAt(0).toUpperCase() + low.slice(1);
-    if (low === 'free' || low === 'hobby') return 'Free';
-  }
-  if (providerName === 'Grok') {
-    if (low.includes('heavy')) return 'SuperGrok Heavy';
-    if (low.includes('super')) return 'SuperGrok';
-    if (low === 'free') return 'Free';
-  }
-  if (providerName === 'Gemini') {
-    // Google returns the full product line ("Gemini Code Assist for
-    // individuals") — that blows out the tray. Keep the short product name.
-    if (low.includes('code assist')) return 'Code Assist';
-    if (low.includes('ultra') || low.includes('ai ultra')) return 'Ultra';
-    if (low.includes('ai pro') || low === 'pro' || low === 'standard') return 'Pro';
-    if (low.includes('ai plus') || low === 'plus') return 'Plus';
-    if (low === 'free' || low.includes('free')) return 'Free';
-  }
-  // Claude Max 20× already pretty from Python; pass through
-  if (/^max\s+\d+×$/i.test(s) || /^max\s+\d+x$/i.test(s)) {
-    return s.replace(/x$/i, '×');
-  }
-  // Title-case short tokens
-  if (s.length <= 24 && !/\s/.test(s)) {
-    return s.charAt(0).toUpperCase() + s.slice(1);
-  }
-  return s;
-}
-
-/**
- * Public list prices for glanceability (what the tier costs /mo).
- * Prefer a live API price when passed; otherwise known retail.
- */
-function planPrice(providerName, planName, livePrice) {
-  if (livePrice) {
-    const n = String(livePrice).trim();
-    if (/^\$?\d/.test(n)) return n.includes('/') ? n : `${n.replace(/\s*\/mo$/i, '')}/mo`;
-  }
-  if (!planName) return null;
-  const p = String(planName).toLowerCase();
-  const table = {
-    Claude: [
-      [/max\s*20/, '$200/mo'],
-      [/max\s*5/, '$100/mo'],
-      [/^max$/, '$100/mo'],
-      [/^pro$/, '$20/mo'],
-      [/^free$/, '$0'],
-    ],
-    Cursor: [
-      [/pro\+/, '$60/mo'],
-      [/^pro$/, '$20/mo'],
-      [/business|team/, null],
-      [/^free$|^hobby$/, '$0'],
-    ],
-    Codex: [
-      [/^plus$/, '$20/mo'],
-      [/^pro$/, '$20/mo'],
-      [/^free$/, '$0'],
-      [/team|enterprise/, null],
-    ],
-    Grok: [
-      [/heavy/, '$300/mo'],
-      [/super/, '$30/mo'],
-      [/^free$/, '$0'],
-      [/^paid$/, null],
-    ],
-    Gemini: [
-      [/^free$/, '$0'],
-      [/^plus$|ai plus/, '$10/mo'],
-      [/^pro$|^standard$|ai pro/, '$20/mo'],
-      [/ultra|ai ultra/, '$250/mo'],
-    ],
-    Copilot: [
-      [/^free$/, '$0'],
-      [/^pro\+$/, '$39/mo'],
-      [/^pro$/, '$10/mo'],
-      [/business|enterprise/, null],
-    ],
-  };
-  const rows = table[providerName] || [];
-  for (const [re, price] of rows) {
-    if (re.test(p)) return price;
-  }
-  return null;
 }
 
 function provider(shortName, meters, href, plan, livePrice, status) {
@@ -385,11 +290,17 @@ async function pullGrokOnce(token) {
 
 async function pullGrok() {
   const auth = readJson(path.join(HOME, '.grok', 'auth.json'));
-  if (!auth) return null;
+  if (!auth) {
+    lastError.Grok = 'no_token';
+    return null;
+  }
   const entry = Object.values(auth)[0];
   let token = entry?.key || entry?.access_token || null;
   if (!token && entry?.refresh_token) token = await refreshGrokAuth();
-  if (!token) return null;
+  if (!token) {
+    lastError.Grok = 'no_token';
+    return null;
+  }
 
   let { res, userRes, billRes } = await pullGrokOnce(token);
   if ((!res.ok || res.status === 401) && entry?.refresh_token) {
@@ -399,59 +310,35 @@ async function pullGrok() {
       ({ res, userRes, billRes } = await pullGrokOnce(token));
     }
   }
-  if (!res.ok || !res.json) return stubReconnect('Grok', 'https://grok.com/');
+  if (!res.ok || !res.json) {
+    lastError.Grok = res && res.status ? 'http_' + res.status : 'no_answer';
+    return stubReconnect('Grok', 'https://grok.com/');
+  }
 
-  const cfg = res.json.config || res.json;
-  const meters = [];
-  if (cfg.creditUsagePercent != null) {
-    meters.push({
-      label: 'Weekly',
-      usedPercent: cfg.creditUsagePercent,
-      resetsAt: cfg.currentPeriod?.end || cfg.billingPeriodEnd || null,
-    });
+  const bill = billRes.ok ? billRes.json : null;
+  const meters = parseGrokBilling(res.json, bill);
+  if (!meters.length) {
+    lastError.Grok = 'no_meters';
+    return null;
   }
-  for (const p of cfg.productUsage || []) {
-    if (p.usagePercent == null) continue;
-    // Grok's API names its products "GrokBuild" / "Api". Tidy them for display:
-    // the card already says Grok, so the meter just needs to say Build.
-    const raw = String(p.product || 'Product');
-    let label = raw;
-    if (/build/i.test(raw)) label = 'Build';
-    else if (/^api$/i.test(raw)) label = 'API';
-    meters.push({
-      label,
-      usedPercent: p.usagePercent,
-      resetsAt: null,
-    });
-  }
-  let plan = null;
   const user = userRes.ok ? userRes.json : null;
-  const bill = billRes.ok ? billRes.json?.config || billRes.json : null;
-  // Unified billing (2026+): credits endpoint may omit creditUsagePercent /
-  // productUsage; monthly used/limit live on the plain /v1/billing config.
-  if (!meters.length && bill) {
-    const limitRaw = bill.monthlyLimit?.val ?? bill.monthlyLimit;
-    const usedRaw = bill.used?.val ?? bill.used;
-    const limit = limitRaw != null ? Number(limitRaw) : NaN;
-    const used = usedRaw != null ? Number(usedRaw) : NaN;
-    if (Number.isFinite(limit) && limit > 0 && Number.isFinite(used)) {
-      meters.push({
-        label: 'Monthly',
-        usedPercent: (used / limit) * 100,
-        resetsAt: bill.billingPeriodEnd || null,
-      });
-    }
-  }
-  const monthly = bill?.monthlyLimit?.val ?? bill?.monthlyLimit ?? null;
-  if (user?.hasGrokCodeAccess) {
-    if (monthly != null && Number(monthly) >= 100000) plan = 'SuperGrok Heavy';
-    else plan = 'SuperGrok';
-  } else if (monthly != null && Number(monthly) > 0) {
-    plan = 'Paid';
-  } else {
-    plan = 'Free';
-  }
+  const billCfg = bill?.config || bill;
+  const creditsCfg = (res.json && (res.json.config || res.json)) || {};
+  const plan = inferGrokPlan(user, billCfg, {
+    credits: creditsCfg,
+    override: readPlanOverrides().Grok,
+  });
   return provider('Grok', meters, 'https://grok.com/', plan, null);
+}
+
+/** Local plan pins (gitignored). xAI's CLI omits Heavy vs Super. */
+function readPlanOverrides() {
+  try {
+    const raw = readJson(path.join(ROOT, 'scratch', 'plan-overrides.json'));
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch {
+    return {};
+  }
 }
 
 // Remembers why the newest attempt failed, so a kept-back reading can say what
@@ -475,6 +362,7 @@ const FIXES = {
   Gemini: { verb: 'Re-sign in', id: 'gemini' },
   Copilot: { verb: 'Re-sign in', id: 'copilot' },
   Cursor: { verb: 'Open Cursor', id: 'cursor' },
+  'Grok Bot': { verb: 'Open Cursor', id: 'cursor' },
   Kimi: { verb: 'Re-sign in', id: 'kimi' },
 };
 
@@ -499,6 +387,9 @@ function plainReason(name, raw) {
   if (s.includes('timeout') || s.includes('econn') || s.includes('enotfound')) {
     return name + ' did not answer — it may be down, or you are offline.';
   }
+  if (s.includes('no_meters') || s.includes('no_answer')) {
+    return 'Signed in, but no usage came back just now.';
+  }
   if (s.includes('could not run')) {
     return 'Could not run the reader on this computer.';
   }
@@ -511,6 +402,18 @@ function pullClaude() {
     // The reason used to die right here, which is how a card sat at "54m old"
     // with nothing anywhere explaining that the sign-in had expired.
     lastError.Claude = (j && (j.error || j.hint)) || 'could not run the Claude reader';
+    const err = String((j && j.error) || '');
+    if (
+      err === 'no_claude_code_oauth' ||
+      err === 'no_access_token' ||
+      err === 'refresh_failed' ||
+      /^http_401/.test(err) ||
+      /^http_403/.test(err)
+    ) {
+      const stub = stubReconnect('Claude', 'https://claude.ai/settings/usage');
+      if (stub) stub.reconnectHint = 'Tap to re-sign in';
+      return stub;
+    }
     return null;
   }
   return provider('Claude', j.meters, j.href, j.plan, null);
@@ -719,6 +622,31 @@ function cursorProviderFromPull(j) {
   );
 }
 
+/** Grok Bot weekly is Cursor-metered. Same login, separate card. */
+function grokBotProviderFromPull(j) {
+  if (!j?.ok) {
+    lastError['Grok Bot'] = (j && (j.error || j.hint)) || 'no_db';
+    return null;
+  }
+  const sand = j.sources?.sand_usage;
+  if (!sand) {
+    lastError['Grok Bot'] = j.sources?.sand_usage_error || 'no_meters';
+    return null;
+  }
+  const meters = parseSandWeeklyUsage(sand);
+  if (!meters.length) {
+    lastError['Grok Bot'] = 'no_meters';
+    return null;
+  }
+  return provider(
+    'Grok Bot',
+    meters,
+    'https://cursor.com/dashboard/usage',
+    null,
+    null
+  );
+}
+
 function pullCursor() {
   return cursorProviderFromPull(pyPull('pull-cursor.py'));
 }
@@ -794,6 +722,7 @@ function authHints() {
       (codexAuth.tokens?.access_token || codexAuth.access_token)
     ),
     Grok: !!(grokEntry && (grokEntry.key || grokEntry.access_token)),
+    'Grok Bot': false,
     // Gemini: the Gemini CLI's Google login, same as the others -- a real
     // on-disk hint at last, instead of the old "we cannot tell" false.
     Gemini: fs.existsSync(
@@ -817,6 +746,7 @@ async function main() {
   const copilot = pullCopilotFrom(copilotRaw);
   const cursorRaw = pyPull('pull-cursor.py');
   const cursor = cursorProviderFromPull(cursorRaw);
+  const grokBot = grokBotProviderFromPull(cursorRaw);
   const kimi = pullKimiFrom(pyPull('pull-kimi.py'));
 
   // Glance order — never drop a working meter just because one refresh glitched.
@@ -832,6 +762,7 @@ async function main() {
     keepProvider('Cursor', cursor, prevByName),
     keepProvider('Codex', codex, prevByName),
     keepProvider('Grok', grok, prevByName),
+    keepProvider('Grok Bot', grokBot, prevByName),
     keepProvider('Kimi', kimi, prevByName),
     keepProvider('Copilot', copilot, prevByName),
     keepProvider('Gemini', gemini, prevByName),
@@ -839,12 +770,13 @@ async function main() {
   const live = new Set(providers.map((p) => p.shortName));
   const hints = authHints();
   if (cursorRaw?.ok) hints.Cursor = true;
+  if (cursorRaw?.ok && cursorRaw.sources?.sand_usage) hints['Grok Bot'] = true;
   if (copilotRaw?.ok || (copilotRaw && copilotRaw.error !== 'no_token')) {
     // Token found (even if org seat has no percent meters)
     if (copilotRaw && copilotRaw.error !== 'no_token') hints.Copilot = true;
   }
   if (copilot) hints.Copilot = true;
-  const allIds = ['Claude', 'Cursor', 'Codex', 'Grok', 'Gemini', 'Copilot', 'Kimi'];
+  const allIds = ['Claude', 'Cursor', 'Codex', 'Grok', 'Grok Bot', 'Gemini', 'Copilot', 'Kimi'];
   const connections = allIds.map((name) => ({
     id: name,
     connected: live.has(name) || !!hints[name],
@@ -861,6 +793,7 @@ async function main() {
     Cursor: 'Open the Cursor app and sign in.',
     Codex: 'Run `codex login` in a terminal.',
     Grok: 'Run `grok login` in a terminal.',
+    'Grok Bot': 'Open Cursor or Grok Bot and sign in with the same account.',
     Gemini: 'In the desk: Connect → Gemini → Sync Gemini.',
     Copilot: 'Sign in to Copilot in your editor, or run `gh auth login`.',
     Kimi: 'Run `kimi login` in a terminal.',
@@ -887,6 +820,8 @@ async function main() {
             ? 'Google retired Gemini Code Assist for personal accounts, so this one may not report at all.'
             : name === 'Kimi' && String(lastError.Kimi || '').includes('no_subscription')
             ? 'The login works — meters need an active Kimi for Coding plan (kimi.com/code).'
+            : name === 'Grok Bot'
+            ? 'Weekly Grok Bot usage is on the Cursor account. Open Cursor or Grok Bot, then Refresh.'
             : (HOWTO[name] || null) + ' Signing in again usually fixes it.',
       };
     });
