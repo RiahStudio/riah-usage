@@ -10,7 +10,8 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const os = require('os');
-const { spawnSync } = require('child_process');
+const dns = require('dns');
+const { spawnSync, execFile } = require('child_process');
 const { parseGrokBilling } = require('./lib/parse-grok-billing');
 const { parseSandWeeklyUsage } = require('./lib/parse-sand-usage');
 const { prettyPlan, planPrice, inferGrokPlan } = require('./lib/plan-labels');
@@ -27,7 +28,18 @@ function readJson(p) {
   }
 }
 
-function requestJson(url, { method = 'GET', headers = {}, body = null } = {}) {
+// One more try for a dropped connection or a vendor 5xx. The Wi-Fi here drops
+// a request now and then, and a single miss used to leave a card on its old
+// reading until the next collect, 3 minutes later (2026-10-21). GET only: a
+// POST such as a token refresh must never be sent twice.
+async function requestJson(url, opts = {}) {
+  const first = await requestJsonOnce(url, opts);
+  if ((opts.method && opts.method !== 'GET') || (first.status !== 0 && first.status < 500)) return first;
+  await new Promise((r) => setTimeout(r, 1500));
+  return requestJsonOnce(url, opts);
+}
+
+function requestJsonOnce(url, { method = 'GET', headers = {}, body = null } = {}) {
   return new Promise((resolve) => {
     let u;
     try {
@@ -98,7 +110,22 @@ function pythonCmd() {
   return PY;
 }
 
+// One collect = one fresh process, so this cache lives exactly one cycle. It
+// serves two jobs: prefetchPulls() fills it in parallel, and a script asked for
+// twice in one cycle (Cursor and Copilot each were) runs once.
+const PULL_CACHE = new Map();
+
+function parsePull(stdout) {
+  if (!stdout) return null;
+  try {
+    return JSON.parse(String(stdout).trim().split(/\r?\n/).filter(Boolean).pop());
+  } catch {
+    return null;
+  }
+}
+
 function pyPull(scriptName) {
+  if (PULL_CACHE.has(scriptName)) return PULL_CACHE.get(scriptName);
   const script = path.join(ROOT, 'lib', scriptName);
   if (!fs.existsSync(script)) return null;
   const r = spawnSync(pythonCmd(), [script], {
@@ -106,12 +133,59 @@ function pyPull(scriptName) {
     timeout: 45000,
     windowsHide: true,
   });
-  if (!r.stdout) return null;
-  try {
-    return JSON.parse(r.stdout.trim().split(/\r?\n/).filter(Boolean).pop());
-  } catch {
-    return null;
+  const out = parsePull(r.stdout);
+  PULL_CACHE.set(scriptName, out);
+  return out;
+}
+
+function pyPullAsync(scriptName) {
+  const script = path.join(ROOT, 'lib', scriptName);
+  if (!fs.existsSync(script)) {
+    PULL_CACHE.set(scriptName, null);
+    return Promise.resolve(null);
   }
+  return new Promise((resolve) => {
+    execFile(
+      pythonCmd(),
+      [script],
+      { encoding: 'utf8', timeout: 45000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+      (_err, stdout) => {
+        const out = parsePull(stdout);
+        PULL_CACHE.set(scriptName, out);
+        resolve(out);
+      }
+    );
+  });
+}
+
+/**
+ * Run the Python readers side by side (three at a time -- this machine is
+ * also somebody's desktop) instead of one after another. Sequential, a collect
+ * took ~52s, which put a floor under how fresh the numbers could ever be.
+ * The slow Gemini browser fallback only runs if the Gemini CLI login fails,
+ * exactly as pullGemini() decides.
+ */
+async function prefetchPulls() {
+  pythonCmd(); // resolve the interpreter once, before anything runs beside it
+  const tasks = [
+    async () => {
+      const cli = await pyPullAsync('pull-gemini-cli.py');
+      if (!cli?.ok) await pyPullAsync('pull-gemini.py');
+    },
+    () => pyPullAsync('pull-cursor.py'),
+    () => pyPullAsync('pull-kimi.py'),
+    () => pyPullAsync('pull-copilot.py'),
+    () => pyPullAsync('pull-claude.py'),
+  ];
+  const lane = async () => {
+    while (tasks.length) {
+      const next = tasks.shift();
+      try {
+        await next();
+      } catch {}
+    }
+  };
+  await Promise.all([lane(), lane(), lane()]);
 }
 
 function provider(shortName, meters, href, plan, livePrice, status) {
@@ -303,7 +377,9 @@ async function pullGrok() {
   }
 
   let { res, userRes, billRes } = await pullGrokOnce(token);
-  if ((!res.ok || res.status === 401) && entry?.refresh_token) {
+  // Only a refused token is a sign-in problem. Refreshing on a dropped
+  // connection rotated the Grok CLI's refresh token for nothing.
+  if ((res.status === 401 || res.status === 403) && entry?.refresh_token) {
     const fresh = await refreshGrokAuth();
     if (fresh) {
       token = fresh;
@@ -312,7 +388,10 @@ async function pullGrok() {
   }
   if (!res.ok || !res.json) {
     lastError.Grok = res && res.status ? 'http_' + res.status : 'no_answer';
-    return stubReconnect('Grok', 'https://grok.com/');
+    // Keep the last reading, marked old, like every other card. A reconnect
+    // card here counted as a fresh reading, so one dropped request wiped Grok
+    // off the board until a later read happened to land (2026-10-21).
+    return null;
   }
 
   const bill = billRes.ok ? billRes.json : null;
@@ -368,9 +447,18 @@ const FIXES = {
 
 function plainReason(name, raw) {
   const s = String(raw || '').toLowerCase();
+  if (s === 'offline') {
+    return 'No internet right now. This is the last reading.';
+  }
   if (!s) return 'Lost the connection.';
   if (s.includes('no_claude_code_oauth') || s.includes('no_token') || s.includes('no_gemini_cli_login') || s.includes('no_kimi_login')) {
     return 'Sign-in needs renewing.';
+  }
+  if (s.includes('borrowed_login_idle')) {
+    return "Borrowing Claude Code's sign-in, and it's idle. Re-sign in gives Riah Usage its own.";
+  }
+  if (name === 'Claude' && s.includes('http_429')) {
+    return 'Claude returned HTTP 429 for its usage read. Riah Usage will retry automatically.';
   }
   if (s.includes('no_subscription')) {
     return 'Signed in, but this account has no Kimi for Coding plan.';
@@ -669,6 +757,14 @@ function readPreviousProviders() {
         });
       }
     }
+    // A reconnect card has no meters. Keep the last actual Claude reading
+    // across restarts and repeated API failures, clearly marked stale below.
+    if (!map.Claude || map.Claude.status === 'reconnect' || !map.Claude.meters?.length) {
+      const saved = readJson(path.join(ROOT, 'scratch', 'claude-last-good.json'));
+      if (saved?.shortName === 'Claude' && Array.isArray(saved.meters) && saved.meters.length) {
+        map.Claude = saved;
+      }
+    }
     return map;
   } catch {
     return {};
@@ -677,7 +773,16 @@ function readPreviousProviders() {
 
 function keepProvider(name, next, prevByName) {
   // A fresh reading always wins, and is stamped with the time it was taken.
-  if (next) return Object.assign({}, next, { readAt: new Date().toISOString(), stale: false });
+  if (next) {
+    const fresh = Object.assign({}, next, { readAt: new Date().toISOString(), stale: false });
+    if (name === 'Claude' && fresh.meters.length && fresh.status !== 'reconnect') {
+      try {
+        fs.mkdirSync(path.join(ROOT, 'scratch'), { recursive: true });
+        fs.writeFileSync(path.join(ROOT, 'scratch', 'claude-last-good.json'), JSON.stringify(fresh), 'utf8');
+      } catch (_) {}
+    }
+    return fresh;
+  }
 
   // No fresh reading. We can still show the last one -- an old number beats a
   // card that vanishes -- but it MUST be labelled. Handing back yesterday's
@@ -690,7 +795,10 @@ function keepProvider(name, next, prevByName) {
       stale: true,
       readAt: prev.readAt || null,
       staleReason: plainReason(name, lastError[name]),
-      fix: FIXES[name] || null,
+      // Signing in again fixes neither of these.
+      fix: (name === 'Claude' && String(lastError[name] || '').includes('http_429')) ||
+        lastError[name] === 'offline'
+        ? null : FIXES[name] || null,
     });
   }
   return null;
@@ -698,7 +806,10 @@ function keepProvider(name, next, prevByName) {
 
 /** Login present on disk (even if usage API glitched). Never reads token values into output. */
 function authHints() {
-  const claudeCred = readJson(path.join(HOME, '.claude', '.credentials.json'));
+  // Riah Usage's own Claude login first (lib/pull-claude.py), then Claude Code's.
+  const claudeCred =
+    readJson(path.join(HOME, '.riah-usage', 'claude', '.credentials.json')) ||
+    readJson(path.join(HOME, '.claude', '.credentials.json'));
   const claudeO =
     (claudeCred && claudeCred.claudeAiOauth) || claudeCred || null;
   const codexAuth = readJson(path.join(HOME, '.codex', 'auth.json'));
@@ -737,17 +848,130 @@ function authHints() {
   };
 }
 
+function writeSnapshot(data) {
+  // Atomic write — avoids Google Drive / antivirus lock crashes on direct open.
+  fs.mkdirSync(path.join(ROOT, 'scratch'), { recursive: true });
+  // Pure ASCII on purpose: the tray reads this with Windows PowerShell 5.1,
+  // which decodes a BOM-less file as the system codepage. Claude's plan label
+  // "Max 5×" turned into garbage there, the parse failed, and the tray froze
+  // on old numbers with "Claude: no meters yet". (2026-10-19.) Escaped, the
+  // same text reads identically in JSON and in the browser.
+  const asciiJson = JSON.stringify(data, null, 2).replace(
+    /[\u007f-￿]/g,
+    (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')
+  );
+  const payload =
+    '/* auto-generated - do not hand-edit */\nwindow.USAGE_DATA = ' +
+    asciiJson +
+    ';\n';
+  const tmpJs = path.join(ROOT, 'scratch', 'usage-data.js.tmp');
+  fs.writeFileSync(tmpJs, payload, 'utf8');
+  try {
+    fs.renameSync(tmpJs, OUT_JS);
+  } catch (_) {
+    // Rename can fail across locks; fall back to overwrite, then leave last good file.
+    try {
+      fs.writeFileSync(OUT_JS, payload, 'utf8');
+    } catch (e2) {
+      console.error('usage-data.js write skipped (file busy):', e2.code || e2.message);
+    }
+  }
+  try {
+    fs.writeFileSync(
+      path.join(ROOT, 'scratch', 'last-usage.json'),
+      JSON.stringify(data, null, 2),
+      'utf8'
+    );
+  } catch (_) {}
+}
+
+// --claude-only: the desk's one-minute Claude watcher. Re-reads Claude alone
+// and carries every other card over exactly as the last full collect left it,
+// so the Claude card stays live without polling seven other vendors each
+// minute. (Captain, 2026-10-19: "useless unless it's updated every minute or
+// so -- it should be an automatic watcher.")
+const CLAUDE_ONLY = process.argv.includes('--claude-only');
+
+function readPreviousData() {
+  try {
+    const raw = fs.readFileSync(OUT_JS, 'utf8');
+    return JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+  } catch {
+    return null;
+  }
+}
+
+// Can this PC reach the internet at all? After a wake from sleep the Wi-Fi or
+// DNS can stay down for a while (2026-10-21: DNS timed out for every site for
+// 20 minutes). Every vendor read then waited out its own timeout, a collect ran
+// over a minute, and the board said Live over a page of old numbers while
+// Refresh appeared to do nothing. Two lookups answer the question up front.
+const NET_HOSTS = ['api.anthropic.com', 'chatgpt.com'];
+
+function canReachInternet(ms = 5000) {
+  const one = (host) =>
+    new Promise((resolve) => {
+      const t = setTimeout(() => resolve(false), ms);
+      dns.lookup(host, (err) => {
+        clearTimeout(t);
+        resolve(!err);
+      });
+    });
+  return Promise.all(NET_HOSTS.map(one)).then((up) => up.some(Boolean));
+}
+
+// No internet: skip every vendor read and keep the last numbers, each card
+// marked with how old it is. serve.js sees `offline` and looks again in 20s.
+function writeOffline(prevByName) {
+  const prev = readPreviousData();
+  if (!prev) return;
+  for (const name of Object.keys(FIXES)) lastError[name] = 'offline';
+  const providers = (prev.providers || []).map((p) => keepProvider(p.shortName, null, prevByName) || p);
+  writeSnapshot(Object.assign({}, prev, { generatedAt: new Date().toISOString(), providers, offline: true }));
+  console.log('No internet: kept the last readings, looking again shortly.');
+}
+
 async function main() {
   const prevByName = readPreviousProviders();
-  const [codex, grok] = await Promise.all([pullCodex(), pullGrok()]);
+  const prevData = CLAUDE_ONLY ? readPreviousData() : null;
+  if (CLAUDE_ONLY && !prevData) return; // nothing to carry over yet; the full collect will run
+  if (!(await canReachInternet())) return writeOffline(prevByName);
+  const [codex, grok] = CLAUDE_ONLY
+    ? [null, null]
+    : await Promise.all([pullCodex(), pullGrok(), prefetchPulls()]);
   const claude = pullClaude();
-  const gemini = pullGemini();
-  const copilotRaw = pyPull('pull-copilot.py');
-  const copilot = pullCopilotFrom(copilotRaw);
-  const cursorRaw = pyPull('pull-cursor.py');
-  const cursor = cursorProviderFromPull(cursorRaw);
-  const grokBot = grokBotProviderFromPull(cursorRaw);
-  const kimi = pullKimiFrom(pyPull('pull-kimi.py'));
+  const gemini = CLAUDE_ONLY ? null : pullGemini();
+  const copilotRaw = CLAUDE_ONLY ? null : pyPull('pull-copilot.py');
+  const copilot = CLAUDE_ONLY ? null : pullCopilotFrom(copilotRaw);
+  const cursorRaw = CLAUDE_ONLY ? null : pyPull('pull-cursor.py');
+  const cursor = CLAUDE_ONLY ? null : cursorProviderFromPull(cursorRaw);
+  const grokBot = CLAUDE_ONLY ? null : grokBotProviderFromPull(cursorRaw);
+  const kimi = CLAUDE_ONLY ? null : pullKimiFrom(pyPull('pull-kimi.py'));
+  if (CLAUDE_ONLY) {
+    // Other cards: exactly what the last full collect wrote, untouched.
+    const keep = (name, next) =>
+      name === 'Claude' ? keepProvider(name, next, prevByName) : prevByName[name] || null;
+    const claudeCard = keep('Claude', claude);
+    const providers = (prevData.providers || [])
+      .map((p) => (p.shortName === 'Claude' ? claudeCard : keep(p.shortName)))
+      .filter(Boolean);
+    if (claudeCard && !providers.some((p) => p.shortName === 'Claude')) providers.unshift(claudeCard);
+    const live = !!(claudeCard && claudeCard.meters && claudeCard.meters.length && claudeCard.status !== 'reconnect');
+    const data = Object.assign({}, prevData, {
+      generatedAt: new Date().toISOString(),
+      offline: undefined, // reached the internet just now
+      providers,
+      connections: (prevData.connections || []).map((c) =>
+        c.id === 'Claude' ? { id: 'Claude', connected: live || !!authHints().Claude } : c
+      ),
+      missing: (prevData.missing || []).filter((m) => m.name !== 'Claude' || !live),
+    });
+    writeSnapshot(data);
+    if (claudeCard) {
+      console.log(`Claude: ${claudeCard.meters.map((m) => `${m.label} ${m.usedPercent}%`).join(' · ') || claudeCard.reconnectHint || claudeCard.staleReason || 'no meters yet'}`);
+    }
+    return;
+  }
 
   // Glance order — never drop a working meter just because one refresh glitched.
   //
@@ -814,9 +1038,13 @@ async function main() {
       return {
         name,
         state: 'stale',
-        reason: 'Signed in, but no usage came back just now.',
+        reason: name === 'Claude' && String(lastError.Claude || '').includes('http_429')
+          ? plainReason(name, lastError.Claude)
+          : 'Signed in, but no usage came back just now.',
         action:
-          name === 'Gemini'
+          name === 'Claude' && String(lastError.Claude || '').includes('http_429')
+            ? 'Retrying automatically when Claude allows another check.'
+            : name === 'Gemini'
             ? 'Google retired Gemini Code Assist for personal accounts, so this one may not report at all.'
             : name === 'Kimi' && String(lastError.Kimi || '').includes('no_subscription')
             ? 'The login works — meters need an active Kimi for Coding plan (kimi.com/code).'
@@ -874,31 +1102,7 @@ async function main() {
     hidden,
   };
 
-  // Atomic write — avoids Google Drive / antivirus lock crashes on direct open.
-  fs.mkdirSync(path.join(ROOT, 'scratch'), { recursive: true });
-  const payload =
-    '/* auto-generated — do not hand-edit */\nwindow.USAGE_DATA = ' +
-    JSON.stringify(data, null, 2) +
-    ';\n';
-  const tmpJs = path.join(ROOT, 'scratch', 'usage-data.js.tmp');
-  fs.writeFileSync(tmpJs, payload, 'utf8');
-  try {
-    fs.renameSync(tmpJs, OUT_JS);
-  } catch (_) {
-    // Rename can fail across locks; fall back to overwrite, then leave last good file.
-    try {
-      fs.writeFileSync(OUT_JS, payload, 'utf8');
-    } catch (e2) {
-      console.error('usage-data.js write skipped (file busy):', e2.code || e2.message);
-    }
-  }
-  try {
-    fs.writeFileSync(
-      path.join(ROOT, 'scratch', 'last-usage.json'),
-      JSON.stringify(data, null, 2),
-      'utf8'
-    );
-  } catch (_) {}
+  writeSnapshot(data);
 
   // Phone board on riahstudio.com/usage — best-effort push, never fails the collect.
   // push-phone.js is an optional local extra, so most copies of the desk simply
@@ -931,8 +1135,10 @@ async function main() {
       : '';
     // A provider that came back with no meters used to print a bare "Gemini: "
     // — a dangling colon reads as broken. Say what it's actually waiting for.
+    // A kept-back card says why, so the log shows which read missed.
+    const keptBit = p.stale ? ` (last reading kept: ${lastError[p.shortName] || 'no answer'})` : '';
     console.log(
-      `${p.shortName}${planBit}: ${bits || p.reconnectHint || p.staleReason || 'no meters yet'}`
+      `${p.shortName}${planBit}: ${bits || p.reconnectHint || p.staleReason || 'no meters yet'}${keptBit}`
     );
   }
   const offline = connections.filter((c) => !c.connected).map((c) => c.id);

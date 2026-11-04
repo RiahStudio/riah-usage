@@ -12,12 +12,16 @@ const path = require('path');
 const { spawn, spawnSync, exec } = require('child_process');
 
 const ROOT = __dirname;
-const PORT = Number(process.env.RIAH_USAGE_PORT) || 8775;
+const PORT = Number(process.env.RIAH_USAGE_PORT) || 8800;
 const HOST = '127.0.0.1';
 const URL = `http://${HOST}:${PORT}/`;
 const SCRATCH = path.join(ROOT, 'scratch');
 const PID_FILE = path.join(SCRATCH, 'desk.pid');
 const LOG_FILE = path.join(SCRATCH, 'desk.log');
+// The launcher's own errors. desk.log belongs to the server: on Windows the
+// hidden wrapper appends to it with `>>`, and cmd's redirect refuses any second
+// writer, so the launcher must never hold desk.log open while the server starts.
+const LAUNCH_LOG = path.join(SCRATCH, 'desk-launcher.log');
 
 function isUp() {
   return new Promise((resolve) => {
@@ -83,19 +87,37 @@ async function main() {
   }
 
   fs.mkdirSync(SCRATCH, { recursive: true });
-  const out = fs.openSync(LOG_FILE, 'a');
-  fs.writeSync(out, `\n--- start ${new Date().toISOString()} ---\n`);
+  try {
+    fs.appendFileSync(LOG_FILE, `\n--- start ${new Date().toISOString()} ---\n`);
+  } catch (_) {}
 
-  const child = spawn(process.execPath, [path.join(ROOT, 'serve.js')], {
-    cwd: ROOT,
-    detached: true,
-    stdio: ['ignore', out, out],
-    windowsHide: true,
-    env: {
-      ...process.env,
-      RIAH_USAGE_BACKGROUND: '1',
-      RIAH_USAGE_PORT: String(PORT),
-    },
+  const serverEnv = {
+    ...process.env,
+    RIAH_USAGE_BACKGROUND: '1',
+    RIAH_USAGE_PORT: String(PORT),
+  };
+  let child;
+  if (process.platform === 'win32') {
+    // Use the shared wscript -> hidden .cmd launcher; detached node.exe flashes on Windows.
+    const { spawnExeViaHiddenCmd } = require(path.join(ROOT, '..', '_shared-agent-rules', 'bin', 'spawn-exe-via-hidden-cmd.cjs'));
+    const cmd = process.env.ComSpec || path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe');
+    child = spawnExeViaHiddenCmd(cmd, ['/c', 'tray\\start-server-hidden.cmd'], {
+      cwd: ROOT,
+      detached: true,
+      env: { ...serverEnv, RIAH_USAGE_NODE_EXE: process.execPath },
+    });
+  } else {
+    const out = fs.openSync(LOG_FILE, 'a');
+    child = spawn(process.execPath, [path.join(ROOT, 'serve.js')], {
+      cwd: ROOT,
+      detached: true,
+      stdio: ['ignore', out, out],
+      env: serverEnv,
+    });
+    fs.closeSync(out); // the child has its own copy
+  }
+  child.on('error', (e) => {
+    try { fs.appendFileSync(LAUNCH_LOG, `server launcher error: ${e && e.message ? e.message : e}\n`); } catch (_) {}
   });
 
   fs.writeFileSync(PID_FILE, String(child.pid), 'utf8');
@@ -115,7 +137,7 @@ async function main() {
 
 main().catch((e) => {
   try {
-    fs.appendFileSync(LOG_FILE, String(e && e.stack ? e.stack : e) + '\n');
+    fs.appendFileSync(LAUNCH_LOG, String(e && e.stack ? e.stack : e) + '\n');
   } catch (_) {}
   process.exit(1);
 });

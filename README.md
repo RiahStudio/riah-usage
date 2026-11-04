@@ -41,7 +41,7 @@ npm start
 Windows: double-click **`Start Riah Usage.bat`** (first run may install a small helper, then it stays quiet).  
 macOS / Linux: `chmod +x start.sh && ./start.sh`
 
-That starts the desk **in the background** (no browser popup) and refreshes meters about every 5 minutes. Open the full page from the tray menu when you want it. Nothing to leave open. To stop later: **`Stop Riah Usage.bat`**.
+That starts the desk **in the background** (no browser popup) and refreshes meters about every 3 minutes. Open the full page from the tray menu when you want it. Nothing to leave open. To stop later: **`Stop Riah Usage.bat`**.
 
 One-shot snapshot (no live loop): `npm run once` then open `index.html`.
 
@@ -96,7 +96,7 @@ You choose what shows: in **Connect**, use the **Shown on the board** checkboxes
 
 We'd love to cover them all — we just haven't built the rest yet. The desk only reads sign-ins that already live on your computer, so the AIs that live in the browser (Perplexity, Midjourney, Suno, ElevenLabs, Runway…) each need their usage page taught the same one-click Sync trick Gemini uses. Buildable — just not built.
 
-[docs/providers.md](docs/providers.md) maps where every popular AI stands today. Want one sooner? Feel free to build it and send a PR. Only house rule: no API keys, no passwords, meters only.
+[docs/providers.md](docs/providers.md) maps where every popular AI stands today. Want one sooner? Feel free to build it and send a PR — the steps are in [CONTRIBUTING.md](CONTRIBUTING.md). Only house rule: no API keys, no passwords, meters only.
 
 ## Privacy
 

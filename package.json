@@ -9,7 +9,8 @@
     "start": "node start-background.js",
     "start:foreground": "node serve.js",
     "once": "node collect-usage.js",
-    "sync-gemini": "node sync-gemini.js"
+    "sync-gemini": "node sync-gemini.js",
+    "test": "node tests/test-fonts-and-mac.js && node tests/test-grok-billing.js && node tests/test-plan-labels.js && node tests/test-sand-usage.js && node tests/test-security-rs-036-038.js && node tests/test-offline.js && node tests/test-grok-blip.js"
   },
   "engines": {
     "node": ">=18"

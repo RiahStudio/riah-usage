@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Local live desk — serves the UI and re-collects meters on a timer.
- * Zero deps. Open http://127.0.0.1:8775/
+ * Zero deps. Open http://127.0.0.1:8800/
  * (8765 is Riah Studio’s generation service — don’t collide.)
  */
 'use strict';
@@ -9,23 +9,113 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { spawn, exec } = require('child_process');
 
 const ROOT = __dirname;
-const PORT = Number(process.env.RIAH_USAGE_PORT) || 8775;
-const REFRESH_MS = Number(process.env.RIAH_USAGE_REFRESH_MS) || 5 * 60 * 1000;
+const PORT = Number(process.env.RIAH_USAGE_PORT) || 8800;
+// 3 min, down from 5 (2026-10-12): the meters are only worth having if they are
+// current. A collect now takes ~19s (parallel readers), so this is cheap.
+const REFRESH_MS = Number(process.env.RIAH_USAGE_REFRESH_MS) || 3 * 60 * 1000;
 const HOST = '127.0.0.1';
 const BACKGROUND = process.env.RIAH_USAGE_BACKGROUND === '1';
 const PID_FILE = path.join(ROOT, 'scratch', 'desk.pid');
 
+// No internet: look again every 20s instead of every 3 min. A wake from sleep
+// can come back without Wi-Fi or DNS for a while (2026-10-21: 20 minutes), and
+// the meters should catch up the moment it returns, not one timer later.
+// collect-usage.js checks DNS first and skips the vendor reads while offline,
+// so each look is a couple of lookups.
+const OFFLINE_RETRY_MS = Number(process.env.RIAH_USAGE_OFFLINE_RETRY_MS) || 20 * 1000;
+
 let collecting = false;
+let collectRun = null;
 let lastCollectAt = null;
 let lastCollectOk = null;
+let refreshTimer = null;
+
+function snapshotOffline() {
+  try {
+    return /"offline":\s*true/.test(fs.readFileSync(path.join(ROOT, 'usage-data.js'), 'utf8'));
+  } catch (_) {
+    return false;
+  }
+}
+
+// A card that just missed a read (fresh a collect ago, kept back now) gets a
+// second look in 30s instead of 3 minutes. Once per miss, so a vendor that is
+// really down still waits the normal 3 minutes. Claude has its own 1-minute
+// watcher and is left out.
+const BLIP_RETRY_MS = Number(process.env.RIAH_USAGE_BLIP_RETRY_MS) || 30 * 1000;
+let blipRetried = false;
+
+function snapshotJustDropped() {
+  try {
+    const raw = fs.readFileSync(path.join(ROOT, 'usage-data.js'), 'utf8');
+    const data = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+    const recent = Date.now() - 2 * REFRESH_MS;
+    return (data.providers || []).some(
+      (p) => p.stale && p.shortName !== 'Claude' && Date.parse(p.readAt || '') > recent
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function scheduleNextCollect() {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  let wait = REFRESH_MS;
+  if (snapshotOffline()) wait = OFFLINE_RETRY_MS;
+  else if (!blipRetried && snapshotJustDropped()) wait = BLIP_RETRY_MS;
+  blipRetried = wait === BLIP_RETRY_MS;
+  refreshTimer = setTimeout(() => {
+    collect().catch((e) => {
+      console.error('refresh collect failed:', e && e.message ? e.message : e);
+    });
+  }, wait);
+}
+
+// Claude watcher: Claude's card alone, every minute, between full collects.
+// (Captain, 2026-10-19: "useless unless it's updated every minute or so -- it
+// should be an automatic watcher.") lib/pull-claude.py spaces its own reads if
+// Anthropic pushes back, so this tick is safe to leave running.
+const CLAUDE_WATCH_MS = Number(process.env.RIAH_USAGE_CLAUDE_WATCH_MS) || 60 * 1000;
+let claudeWatching = false;
+
+function watchClaudeOnce() {
+  if (collecting || claudeWatching) return Promise.resolve(false);
+  claudeWatching = true;
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(ROOT, 'collect-usage.js'), '--claude-only'], {
+      cwd: ROOT,
+      windowsHide: true,
+    });
+    child.stderr.on('data', (d) => process.stderr.write(d));
+    const done = (ok) => {
+      claudeWatching = false;
+      resolve(ok);
+    };
+    child.on('close', (code) => done(code === 0));
+    child.on('error', () => done(false));
+  });
+}
+
+function claudeExe() {
+  const exe = path.join(os.homedir(), '.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude');
+  return fs.existsSync(exe) && !/\s/.test(exe) ? exe : 'claude';
+}
 
 function writePid() {
   try {
     fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
     fs.writeFileSync(PID_FILE, String(process.pid), 'utf8');
+  } catch (_) {}
+}
+
+function writeDeskPort(port) {
+  try {
+    fs.mkdirSync(path.join(ROOT, 'scratch'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'scratch', 'desk-port.txt'), String(port), 'utf8');
   } catch (_) {}
 }
 
@@ -36,33 +126,46 @@ function clearPid() {
 }
 
 function collect() {
-  if (collecting) return Promise.resolve(false);
+  // A Refresh that lands while a read is running waits for that read. It used
+  // to answer at once with the old numbers, which looked exactly like Refresh
+  // doing nothing (2026-10-21).
+  if (collectRun) return collectRun;
   collecting = true;
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(ROOT, 'collect-usage.js')], {
-      cwd: ROOT,
-      windowsHide: true,
-    });
-    let out = '';
-    child.stdout.on('data', (d) => {
-      out += d;
-      process.stdout.write(d);
-    });
-    child.stderr.on('data', (d) => process.stderr.write(d));
-    child.on('close', (code) => {
-      collecting = false;
-      lastCollectAt = new Date().toISOString();
-      lastCollectOk = code === 0;
-      if (code !== 0) console.error('Collect exited', code);
-      resolve(code === 0);
-    });
-    child.on('error', (err) => {
-      collecting = false;
-      lastCollectOk = false;
-      console.error(err);
-      resolve(false);
-    });
+  collectRun = new Promise((resolve) => {
+    // Never write the snapshot at the same moment as the Claude watcher.
+    const start = () => (claudeWatching ? setTimeout(start, 250) : run());
+    start();
+    function run() {
+      const child = spawn(process.execPath, [path.join(ROOT, 'collect-usage.js')], {
+        cwd: ROOT,
+        windowsHide: true,
+      });
+      let out = '';
+      child.stdout.on('data', (d) => {
+        out += d;
+        process.stdout.write(d);
+      });
+      child.stderr.on('data', (d) => process.stderr.write(d));
+      child.on('close', (code) => {
+        collecting = false;
+        collectRun = null;
+        lastCollectAt = new Date().toISOString();
+        lastCollectOk = code === 0;
+        scheduleNextCollect();
+        if (code !== 0) console.error('Collect exited', code);
+        resolve(code === 0);
+      });
+      child.on('error', (err) => {
+        collecting = false;
+        collectRun = null;
+        lastCollectOk = false;
+        scheduleNextCollect();
+        console.error(err);
+        resolve(false);
+      });
+    }
   });
+  return collectRun;
 }
 
 const MIME = {
@@ -125,6 +228,8 @@ const ALLOWED_ORIGINS = [
   'https://gemini.google.com',
   `http://127.0.0.1:${PORT}`,
   `http://localhost:${PORT}`,
+  'http://127.0.0.1:8800',
+  'http://localhost:8800',
 ];
 
 /**
@@ -451,7 +556,15 @@ const server = http.createServer((req, res) => {
         id = String((JSON.parse(body) || {}).id || '').toLowerCase();
       } catch {}
       const RECIPES = {
-        claude: { cmd: 'claude auth login', note: 'Finish the browser sign-in.' },
+        // Riah Usage's OWN Claude login, apart from Claude Code's -- renewing
+        // a shared one kept signing Claude Code out. See lib/pull-claude.py.
+        claude: {
+          // Full path when we can: a window started at logon may not have
+          // ~/.local/bin on PATH, and then the sign-in silently never happens.
+          cmd: `${claudeExe()} auth login`,
+          env: { CLAUDE_CONFIG_DIR: path.join(os.homedir(), '.riah-usage', 'claude') },
+          note: 'Finish the browser sign-in.',
+        },
         codex: { cmd: 'codex login', note: 'Finish the browser sign-in.' },
         grok: { cmd: 'grok login', note: 'Finish the browser sign-in.' },
         'grok bot': { cmd: null, note: 'Open Cursor or Grok Bot and sign in.' },
@@ -476,9 +589,14 @@ const server = http.createServer((req, res) => {
           spawn('cmd.exe', ['/c', 'start', '', 'cmd', '/k', r.cmd], {
             detached: true,
             stdio: 'ignore',
+            env: Object.assign({}, process.env, r.env),
           }).unref();
         } else {
-          spawn('sh', ['-c', r.cmd], { detached: true, stdio: 'ignore' }).unref();
+          spawn('sh', ['-c', r.cmd], {
+            detached: true,
+            stdio: 'ignore',
+            env: Object.assign({}, process.env, r.env),
+          }).unref();
         }
         send(res, 200, JSON.stringify({ ok: true, note: r.note }), 'application/json; charset=utf-8');
       } catch (e) {
@@ -598,7 +716,7 @@ const server = http.createServer((req, res) => {
 
   /**
    * RS-038: `usage-data.js` is a bare `window.USAGE_DATA = {...}` assignment,
-   * so ANY website could read it with `<script src="http://127.0.0.1:8775/
+   * so ANY website could read it with `<script src="http://127.0.0.1:8800/
    * usage-data.js">` — CORS does not apply to <script> tags. That leaks which
    * AI products you pay for, at what tier, what they cost, and how hard you're
    * using them, plus it fingerprints "this visitor runs Riah Usage".
@@ -650,8 +768,23 @@ async function main() {
   } catch (e) {
     console.error('initial collect failed (desk still starting):', e && e.message ? e.message : e);
   }
+  setInterval(() => {
+    watchClaudeOnce().catch(() => {});
+  }, CLAUDE_WATCH_MS).unref();
 
+  let triedFallback = false;
   server.on('error', (err) => {
+    if (
+      err &&
+      (err.code === 'EACCES' || err.code === 'EADDRINUSE') &&
+      PORT !== 8800 &&
+      !triedFallback
+    ) {
+      triedFallback = true;
+      console.error(`Port ${PORT} ${err.code} — falling back to 8800.`);
+      server.listen(8800, HOST);
+      return;
+    }
     if (err && err.code === 'EADDRINUSE') {
       console.error(`Port ${PORT} already in use — another Riah Usage is probably already running.`);
       process.exit(0);
@@ -661,8 +794,10 @@ async function main() {
     process.exit(1);
   });
 
-  server.listen(PORT, HOST, () => {
-    const url = `http://${HOST}:${PORT}/`;
+  server.on('listening', () => {
+    const bound = server.address() && server.address().port ? server.address().port : PORT;
+    const url = `http://${HOST}:${bound}/`;
+    writeDeskPort(bound);
     writePid();
     // Windows: show the tray icon (hover = meters at a glance). Best-effort,
     // singleton-guarded inside the tray script. Opt out: RIAH_USAGE_NO_TRAY=1
@@ -680,11 +815,8 @@ async function main() {
     }
   });
 
-  setInterval(() => {
-    collect().catch((e) => {
-      console.error('refresh collect failed:', e && e.message ? e.message : e);
-    });
-  }, REFRESH_MS);
+  server.listen(PORT, HOST);
+
 }
 
 main().catch((e) => {

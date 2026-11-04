@@ -115,10 +115,18 @@
     saveHidden(next);
   }
 
-  function setLive(ok) {
+  function setLive(ok, offline) {
     var dot = document.getElementById('live-dot');
     var lab = document.getElementById('live-label');
     if (!dot || !lab) return;
+    // The desk could not reach the internet on its last look. Say so, instead
+    // of a green Live over numbers nobody could re-read; it looks again every
+    // 20s and the label goes back to Live by itself.
+    if (offline) {
+      dot.classList.remove('on');
+      lab.textContent = 'No internet';
+      return;
+    }
     if (ok) {
       dot.classList.add('on');
       lab.textContent = 'Live';
@@ -843,8 +851,8 @@
     );
   }
 
-  // Wall-clock form for the Claude 5-hour window — glanceable ("when can I
-  // work again?") without adding chrome. Internal preview only.
+  // Wall-clock form for the Claude and Codex 5-hour windows — glanceable ("when
+  // can I work again?") without adding chrome. Internal preview only.
   function formatResetClock(iso) {
     if (!iso) return '';
     var d = new Date(iso);
@@ -864,7 +872,7 @@
   function wantsFiveHourClock(p, m) {
     return (
       !!cfg.previewFiveHourResetLine &&
-      String((p && p.shortName) || '').toLowerCase() === 'claude' &&
+      /^(claude|codex)$/i.test(String((p && p.shortName) || '')) &&
       isFiveHourMeter(m)
     );
   }
@@ -1064,7 +1072,8 @@
   function render(data, liveOk) {
     latestData = data;
     adoptSnapshotHidden(data);
-    if (typeof liveOk === 'boolean') setLive(liveOk);
+    if (data && data.offline) setLive(false, true);
+    else if (typeof liveOk === 'boolean') setLive(liveOk);
     else if (data && (data.providers || []).length) setLive(isHttp);
     else setLive(false);
 

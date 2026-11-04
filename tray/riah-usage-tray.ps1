@@ -58,8 +58,17 @@ if (-not $created) {
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$script:Port      = 8775
+$script:Port      = 8800
 if ($env:RIAH_USAGE_PORT) { try { $script:Port = [int]$env:RIAH_USAGE_PORT } catch {} }
+# Live desk writes scratch\desk-port.txt. Prefer that over a stale env
+# (Studio used to force 8775, which Windows Hyper-V then excluded).
+try {
+  $portFile = Join-Path $script:Root 'scratch\desk-port.txt'
+  if (Test-Path $portFile) {
+    $fromFile = [int]((Get-Content -Path $portFile -Raw).Trim())
+    if ($fromFile -gt 0) { $script:Port = $fromFile }
+  }
+} catch {}
 $script:BaseUrl   = 'http://127.0.0.1:{0}' -f $script:Port
 $script:Data      = $null
 $script:DeskUp    = $false
@@ -91,6 +100,12 @@ $script:NeedsLeave = $false
 $script:LastPlace = 'none'
 # Last time we ATTEMPTED a data fetch, success or not -- see Test-DataStale.
 $script:LastTry = $script:LongAgo
+$script:DiskStamp = 0
+$script:LastHeal = $script:LongAgo
+$script:LastRefreshReq = $script:LongAgo
+$script:LastLiveCheck = $script:LongAgo
+$script:RefreshTask = $null
+$script:Http = $null
 # Re-show governor. If the window ever refuses to stay visible, the pinned
 # branch of the hover timer must not be able to spin on it 20x a second.
 $script:LastShowAt = $script:LongAgo
@@ -272,7 +287,7 @@ function Short-Meter([string]$label) {
   return $l.Substring(0, 8)
 }
 
-# INTERNAL PREVIEW — same switch as config.js previewFiveHourResetLine.
+# INTERNAL PREVIEW -- same switch as config.js previewFiveHourResetLine.
 # Public build forces that flag false; the tray follows so the clock line
 # never ships to strangers until Captain says the preview is ready.
 function Test-PreviewFiveHourReset {
@@ -295,7 +310,7 @@ function Format-FiveHourClock([string]$iso) {
 
 function Get-Providers {
   if (-not $script:Data -or -not $script:Data.providers) { return ,@() }
-  # Honour "Shown on the board" — unchecked names live in data.hidden (synced
+  # Honour "Shown on the board" -- unchecked names live in data.hidden (synced
   # from the web page). Without this filter the hover kept listing Gemini after
   # Captain hid it on the desk. (2026-07-21)
   $hidden = @{}
@@ -419,61 +434,177 @@ function Update-Tray {
   Clear-TrayTip
 }
 
-function Test-DataStale {
-  # Two gates, both required. The floor is the important one: it stamps every
-  # ATTEMPT, so a desk that is DOWN gets retried on a timer instead of on every
-  # single show. Without it, a down desk meant a blocking web call on the UI
-  # thread every time the box was drawn -- which froze the tray solid.
-  if (((Get-Date) - $script:LastTry).TotalSeconds -lt 15) { return $false }
-  return (((Get-Date) - $script:FetchedAt).TotalSeconds -gt 60)
-}
+# DATA RULE (2026-10-12, "hover works half the time"): the hover box reads the
+# LOCAL usage-data.js and nothing else. The desk writes it atomically (tmp +
+# rename), so a disk read never half-fails, never blocks, and never depends on
+# the desk's web server answering inside a 2s window. The old code fetched over
+# HTTP on the UI thread and, on ONE miss, threw its data away and drew the
+# 120px "Desk is not running" stub even though the desk was fine.
+# DeskUp therefore means "we hold usable data", not "the web server answered".
+# A failed read NEVER clears $script:Data.
+$DATA_OLD_MIN = 7       # desk collects every 3 min (~20s each); 2 missed rounds = old
+$HEAL_GAP_MIN = 5       # at most one desk restart attempt per 5 min
+$REFRESH_AFTER_SEC = 120  # numbers older than this get a refresh asked for
+$REFRESH_GAP_SEC = 60     # ...but never more than one ask per minute
+$LIVE_CHECK_MS = 2000     # while the box is open, look for new numbers this often
 
-function Load-DataFromDiskIfNewer {
-  # Drag-to-reorder (and hide) patch usage-data.js on disk immediately.
-  # The HTTP poll is every 60s, so without this the hover kept the old
-  # card order until the next minute. Local file read -- no network, so a
-  # down desk cannot freeze the UI thread.
+function Read-UsageFile {
+  # $true when a usable snapshot was loaded (or is already loaded and current).
   $js = Join-Path $script:Root 'usage-data.js'
-  if (-not (Test-Path -LiteralPath $js)) { return }
+  if (-not (Test-Path -LiteralPath $js)) { return $false }
   try {
-    $mtime = (Get-Item -LiteralPath $js).LastWriteTime
-    if ($mtime -le $script:FetchedAt) { return }
+    $stamp = (Get-Item -LiteralPath $js).LastWriteTimeUtc.Ticks
+    if ($stamp -eq $script:DiskStamp -and $script:Data) { return $true }
     $raw = [string](Get-Content -LiteralPath $js -Raw -ErrorAction Stop)
     $i = $raw.IndexOf('{'); $j = $raw.LastIndexOf('}')
-    if ($i -lt 0 -or $j -le $i) { return }
+    if ($i -lt 0 -or $j -le $i) { return $false }
     $parsed = $raw.Substring($i, $j - $i + 1) | ConvertFrom-Json
-    if (-not $parsed) { return }
+    if (-not $parsed -or -not $parsed.providers) { return $false }
     $script:Data = $parsed
+    $script:DiskStamp = $stamp
     $script:DeskUp = $true
     $script:FetchedAt = Get-Date
     Update-Tray
+    return $true
+  } catch { return $false }
+}
+
+function Get-DataAgeMin {
+  # Minutes since the collector last wrote a snapshot; 9999 when unknown.
+  try {
+    $g = $script:Data.generatedAt
+    if ($null -eq $g) { return 9999 }
+    if ($g -is [datetime]) { $d = $g.ToUniversalTime() }
+    else { $d = [DateTimeOffset]::Parse([string]$g, [Globalization.CultureInfo]::InvariantCulture).UtcDateTime }
+    return [int][Math]::Max(0, ([datetime]::UtcNow - $d).TotalMinutes)
+  } catch { return 9999 }
+}
+
+function Test-DataOld { return ((Get-DataAgeMin) -ge $DATA_OLD_MIN) }
+
+function Request-Refresh([bool]$force) {
+  # Ask the desk to re-read every provider NOW. Fire-and-forget: SendAsync
+  # returns at once, so the UI thread never waits on the ~20s collect. The
+  # desk refuses a POST with no Origin (RS-037), so send its own address; the
+  # old Invoke-WebRequest here sent none and was refused every time.
+  try {
+    $t = $script:RefreshTask
+    if ($null -ne $t) {
+      if (-not $t.IsCompleted) { return }
+      if ($t.IsFaulted) { Write-TrayLog ('refresh_fail ' + $t.Exception.GetBaseException().Message) }
+      else { try { $t.Result.Dispose() } catch {} }
+      $script:RefreshTask = $null
+    }
+    if (-not $force -and ((Get-Date) - $script:LastRefreshReq).TotalSeconds -lt $REFRESH_GAP_SEC) { return }
+    Sync-BaseUrl
+    if ($null -eq $script:Http) {
+      Add-Type -AssemblyName System.Net.Http
+      $script:Http = New-Object System.Net.Http.HttpClient
+      $script:Http.Timeout = [TimeSpan]::FromSeconds(120)
+    }
+    $req = New-Object System.Net.Http.HttpRequestMessage ([System.Net.Http.HttpMethod]::Post), ($script:BaseUrl + '/api/refresh')
+    [void]$req.Headers.TryAddWithoutValidation('Origin', $script:BaseUrl)
+    $script:LastRefreshReq = Get-Date
+    $script:RefreshTask = $script:Http.SendAsync($req)
+    Write-TrayLog ('refresh_asked age_min=' + (Get-DataAgeMin))
+  } catch { Write-TrayLog ('refresh_error ' + $_.Exception.Message) }
+}
+
+function Refresh-IfOld {
+  # Called on every show and every poll. Cheap: one clock compare.
+  if ((Get-DataAgeMin) * 60 -ge $REFRESH_AFTER_SEC) { Request-Refresh $false }
+}
+
+function Repaint-PopupIfShown {
+  # New numbers arrived while the box is open: resize if the row count changed,
+  # then redraw. Never moves a box that is not showing.
+  if (-not (Test-PopupShown)) { return }
+  try {
+    $w = Place-Popup
+    Force-PopupOnScreen $w[0] $w[1] $w[2] $w[3]
+    $popup.Invalidate()
+    $popup.BringToFront()
   } catch {}
+}
+
+function Poll-LiveWhileOpen {
+  # The box is open: pick up a fresh snapshot the moment the desk writes it.
+  if (((Get-Date) - $script:LastLiveCheck).TotalMilliseconds -lt $LIVE_CHECK_MS) { return }
+  $script:LastLiveCheck = Get-Date
+  $before = $script:DiskStamp
+  [void](Read-UsageFile)
+  if ($script:DiskStamp -ne $before) { Repaint-PopupIfShown }
+  Refresh-IfOld
+}
+
+function Load-DataFromDiskIfNewer {
+  # Cheap and safe to call on every show (one stat, a read only on change).
+  [void](Read-UsageFile)
+}
+
+function Sync-BaseUrl {
+  # The desk can come back on a different port after a restart (8775 from the
+  # studio, 8800 standalone). It writes the live one to scratch\desk-port.txt;
+  # read it each time instead of trusting the value from when the tray booted.
+  try {
+    $pf = Join-Path $script:Root 'scratch\desk-port.txt'
+    if (Test-Path -LiteralPath $pf) {
+      $n = [int]((Get-Content -LiteralPath $pf -Raw).Trim())
+      if ($n -gt 0 -and $n -ne $script:Port) {
+        $script:Port = $n
+        $script:BaseUrl = 'http://127.0.0.1:{0}' -f $n
+        Write-TrayLog ('desk_port_now ' + $n)
+      }
+    }
+  } catch {}
+}
+
+function Probe-Desk {
+  # Is the desk web server answering? Only ever asked when the data has gone
+  # old, never on the hover path -- it blocks up to 2s.
+  Sync-BaseUrl
+  try {
+    $r = Invoke-WebRequest -Uri ($script:BaseUrl + '/usage-data.js') -UseBasicParsing -TimeoutSec 2
+    return ($r.StatusCode -eq 200)
+  } catch {
+    Write-TrayLog ('probe_fail ' + $_.Exception.Message)
+    return $false
+  }
+}
+
+function Heal-DeskIfDown {
+  # Data is old AND the desk does not answer: start it, but not more than once
+  # per $HEAL_GAP_MIN so a desk that cannot start is not hammered.
+  if (((Get-Date) - $script:LastHeal).TotalMinutes -lt $HEAL_GAP_MIN) { return }
+  if (Probe-Desk) { return }
+  $script:LastHeal = Get-Date
+  Write-TrayLog ('desk_down_heal age_min=' + (Get-DataAgeMin))
+  Start-Desk
 }
 
 function Load-Data {
   $script:LastTry = Get-Date
-  try {
-    $resp = Invoke-WebRequest -Uri ($script:BaseUrl + '/usage-data.js') -UseBasicParsing -TimeoutSec 2
-    $raw = [string]$resp.Content
-    $i = $raw.IndexOf('{'); $j = $raw.LastIndexOf('}')
-    if ($i -lt 0 -or $j -le $i) { throw 'no json' }
-    $parsed = $raw.Substring($i, $j - $i + 1) | ConvertFrom-Json
-    if ($parsed) {
-      $script:Data = $parsed
-      $script:DeskUp = $true
-      $script:FetchedAt = Get-Date
-    } else { $script:DeskUp = $false }
-  } catch { $script:DeskUp = $false }
+  $ok = Read-UsageFile
+  if (-not $ok -and -not $script:Data) {
+    # No file at all (fresh install / first boot): fall back to asking the desk.
+    try {
+      $resp = Invoke-WebRequest -Uri ($script:BaseUrl + '/usage-data.js') -UseBasicParsing -TimeoutSec 2
+      $raw = [string]$resp.Content
+      $i = $raw.IndexOf('{'); $j = $raw.LastIndexOf('}')
+      if ($i -ge 0 -and $j -gt $i) {
+        $parsed = $raw.Substring($i, $j - $i + 1) | ConvertFrom-Json
+        if ($parsed -and $parsed.providers) {
+          $script:Data = $parsed
+          $script:DeskUp = $true
+          $script:FetchedAt = Get-Date
+        }
+      }
+    } catch { Write-TrayLog ('load_fail ' + $_.Exception.Message) }
+    $script:DeskUp = [bool]$script:Data
+  }
   Update-Tray
   # Early hover can open a tiny stub box before meters load -- resize once data is in
-  if (Test-PopupShown) {
-    try {
-      $w = Place-Popup
-      Force-PopupOnScreen $w[0] $w[1] $w[2] $w[3]
-      $popup.Invalidate()
-      $popup.BringToFront()
-    } catch {}
-  }
+  Repaint-PopupIfShown
 }
 
 function Measure-ContentHeight {
@@ -876,7 +1007,9 @@ function Show-Popup {
     # No debounce here any more. Hover re-entry is gated by Test-HoverBlocked,
     # so a show request that gets this far is one we actually want.
     Load-DataFromDiskIfNewer
-    if (Test-DataStale) { Load-Data }
+    # Show what we have right now, and if it is getting on, ask the desk for
+    # fresh numbers; Poll-LiveWhileOpen repaints when they land (~20s).
+    Refresh-IfOld
     $want = Place-Popup
     $script:PopupOpen = $true
     $script:LeaveAt = $null
@@ -944,7 +1077,7 @@ function Start-Desk {
   try {
     $vbs = Join-Path $script:Root 'start-hidden.vbs'
     if (Test-Path $vbs) {
-      Start-Process -FilePath 'wscript.exe' -ArgumentList '//B', '//Nologo', ('"{0}"' -f $vbs) -WorkingDirectory $script:Root
+      Start-Process -FilePath 'wscript.exe' -WindowStyle Hidden -ArgumentList '//B', '//Nologo', ('"{0}"' -f $vbs) -WorkingDirectory $script:Root
     } else {
       # A missing launcher must fail LOUDLY, not silently (ROADMAP move 3).
       Write-TrayLog ('startdesk_fail missing_vbs ' + $vbs)
@@ -958,9 +1091,7 @@ function Start-Desk {
 }
 
 function Refresh-Now {
-  try {
-    Invoke-WebRequest -Uri ($script:BaseUrl + '/api/refresh') -Method POST -UseBasicParsing -TimeoutSec 2 | Out-Null
-  } catch {}
+  Request-Refresh $true
   $script:KickTimer.Stop(); $script:KickTimer.Start()
 }
 
@@ -1018,10 +1149,22 @@ $popup.add_Paint({
 
   # LIVE pill (desk twin)
   if ($script:DeskUp) {
-    $dot = New-Object System.Drawing.SolidBrush($C.Ok)
+    # Same slot, same size. Fresh numbers say LIVE; numbers the desk has not
+    # refreshed in a while say so instead of passing as current.
+    $isOld = Test-DataOld
+    # The desk's last look found no internet (often right after a wake).
+    $isOff = [bool]$script:Data.offline
+    $dot = New-Object System.Drawing.SolidBrush($(if ($isOld -or $isOff) { $C.Warn } else { $C.Ok }))
     [void]$g.FillEllipse($dot, $PAD, ($y + 2), 6, 6)
     $dot.Dispose()
-    [void]$g.DrawString('LIVE', $F.Meta, $bFaint, ($PAD + 10), $y)
+    $pill = 'LIVE'
+    if ($isOff) {
+      $pill = 'NO INTERNET'
+    } elseif ($isOld) {
+      $am = Get-DataAgeMin
+      $pill = if ($am -ge 9999) { 'OLD' } elseif ($am -lt 120) { 'OLD ' + $am + 'm' } else { 'OLD ' + [int]($am / 60) + 'h' }
+    }
+    [void]$g.DrawString($pill, $F.Meta, $bFaint, ($PAD + 10), $y)
   }
   $y += 14
 
@@ -1089,11 +1232,11 @@ $popup.add_Paint({
             $psz = $g.MeasureString($pctText, $F.Meter)
             $pctX = [int]($innerR - 6 - $psz.Width)
 
-            # Quiet clock for Claude's 5-hour window (internal preview only).
+            # Quiet clock for the Claude and Codex 5-hour windows (internal preview only).
             $clockW = 0
             $pname = ''
             try { $pname = [string]$p.shortName } catch {}
-            if ($showFiveHourClock -and ($pname -eq 'Claude') -and ($lab -eq '5h')) {
+            if ($showFiveHourClock -and (@('Claude', 'Codex') -contains $pname) -and ($lab -eq '5h')) {
               $clock = ''
               try { $clock = Format-FiveHourClock ([string]$m.resetsAt) } catch {}
               if ($clock) {
@@ -1201,7 +1344,7 @@ $miStart.add_Click({ param($s, $e) Start-Desk })
 [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 $miQuit = $menu.Items.Add('Quit tray')
 $miQuit.add_Click({ param($s, $e) Quit-Tray })
-$menu.add_Opening({ param($s, $e) $miStart.Enabled = (-not $script:DeskUp) })
+$menu.add_Opening({ param($s, $e) $miStart.Enabled = ((-not $script:DeskUp) -or (Test-DataOld)) })
 
 $notify.add_MouseUp({
   param($s, $e)
@@ -1253,6 +1396,9 @@ $hoverTimer.add_Tick({
     $script:LeaveAt = $null
     return
   }
+  # Box open (hover or pinned): keep its numbers current while you look at it.
+  if ($script:PopupOpen -and (Test-PopupShown)) { Poll-LiveWhileOpen }
+
   $pos = [System.Windows.Forms.Cursor]::Position
   $overIcon = Test-OverTrayIcon $pos
   $overPopup = Test-OverPopup $pos
@@ -1320,7 +1466,14 @@ $hoverTimer.add_Tick({
 
 $pollTimer = New-Object System.Windows.Forms.Timer
 $pollTimer.Interval = 60000
-$pollTimer.add_Tick({ param($s, $e) Load-Data })
+$pollTimer.add_Tick({
+  param($s, $e)
+  Load-Data
+  # Keep the numbers current even if nobody hovers: ask for a refresh when they
+  # get old, and only when they have gone properly old ask if the desk is alive.
+  Refresh-IfOld
+  if (Test-DataOld) { Heal-DeskIfDown }
+})
 
 $script:KickTimer = New-Object System.Windows.Forms.Timer
 $script:KickTimer.Interval = 6000
@@ -1332,8 +1485,9 @@ Load-Data
 # If the desk is not running, start it. Nobody should have to right-click and
 # pick "Start desk" to make their own meters work -- opening the app should mean
 # the app is open. (Captain, 2026-07-20.)
-if (-not $script:DeskUp) {
+if (-not $script:DeskUp -or ((Test-DataOld) -and -not (Probe-Desk))) {
   Write-TrayLog 'desk_down_at_boot -> starting it'
+  $script:LastHeal = Get-Date
   Start-Desk
 }
 

@@ -4,7 +4,7 @@
  * Never sends cookies or tokens — only plan label + percentages + reset times.
  */
 (function () {
-  var DESK = 'http://127.0.0.1:8775/api/gemini-usage';
+  var DESK = 'http://127.0.0.1:8800/api/gemini-usage';
 
   function planFromPage(text) {
     var plusBadge = Array.prototype.some.call(document.querySelectorAll('*'), function (el) {
@@ -168,7 +168,7 @@
       alert('Synced to Riah Usage. You can switch back to the desk.');
     } catch (e) {
       alert(
-        'Could not reach Riah Usage on this computer. Keep the desk window running (http://127.0.0.1:8775), then try Sync again.'
+        'Could not reach Riah Usage on this computer. Keep the desk window running (http://127.0.0.1:8800), then try Sync again.'
       );
     }
   }

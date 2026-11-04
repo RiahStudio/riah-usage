@@ -188,7 +188,7 @@ async function main() {
   writeStatus({ running: true, phase: 'waiting_login' });
   // Open the one-click page-capture helper (Brave locks cookies while open).
   try {
-    openRealBrowser('http://127.0.0.1:8775/gemini-capture.html');
+    openRealBrowser('http://127.0.0.1:8800/gemini-capture.html');
   } catch (_) {}
 
   const deadline = Date.now() + 5 * 60 * 1000;
@@ -231,7 +231,7 @@ async function main() {
     ok: false,
     error: 'need_page_capture',
     phase: 'need_page_capture',
-    captureUrl: 'http://127.0.0.1:8775/gemini-capture.html',
+    captureUrl: 'http://127.0.0.1:8800/gemini-capture.html',
   });
   process.exitCode = 2;
 }

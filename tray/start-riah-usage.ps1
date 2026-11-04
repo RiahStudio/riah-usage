@@ -102,7 +102,7 @@ Ok 'desk running'
 $snap = Join-Path (Split-Path -Parent $ROOT) '_shared-agent-rules\bin\ui-snapshot.mjs'
 if (Test-Path $snap) {
   Start-Process -WindowStyle Hidden -FilePath $node -ArgumentList @(
-    ('"' + $snap + '"'), ('"' + $ROOT + '"'), 'http://127.0.0.1:8775', '--label', 'launch'
+    ('"' + $snap + '"'), ('"' + $ROOT + '"'), 'http://127.0.0.1:8800', '--label', 'launch'
   )
 }
 

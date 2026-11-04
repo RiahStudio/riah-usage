@@ -7,7 +7,7 @@ window.RIAH_USAGE_CONFIG = {
   // URL once in a browser after you set it. Ours was checked 2026-07-29.
   buyMeACoffeeUrl: "https://buymeacoffee.com/riahstudio",
 
-  // How often the open page checks for a fresher snapshot (ms). Server recollects every ~5 min.
+  // How often the open page checks for a fresher snapshot (ms). Server recollects every ~3 min.
   pollMs: 15000,
 
   // INTERNAL PREVIEW — Claude card only: show the 5-hour window’s local clock
